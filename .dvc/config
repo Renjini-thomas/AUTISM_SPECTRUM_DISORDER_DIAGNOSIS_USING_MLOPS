@@ -1,7 +1,8 @@
 [core]
+    autostage = true
     remote = origin
 ['remote "origin"']
-    url = https://dagshub.com/renjini2539thomas/AUTISM_SPECTRUM_DISORDER_DIAGNOSIS_USING_MLOPS.s3
+    url = https://dagshub.com/renjini2539thomas/AUTISM_SPECTRUM_DISORDER_DIAGNOSIS_USING_MLOPS.dvc
     auth = basic
     user = renjini2539thomas
-    password = 6c15b7bbf9cea4b8122c68630561622d68c58a0e
+    password = 67cf62e075a980267b49cbd3ccd4e657c56c3c6d
