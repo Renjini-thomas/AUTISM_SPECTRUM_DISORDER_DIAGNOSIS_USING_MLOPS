@@ -1,0 +1,44 @@
+data_ingestion:
+  # source_dir: "D:/main_project/Kaggle data/ASD_DATASET"
+  # destination_dir: data/raw
+  s3_mri_path: "s3://fcp-indi/data/Projects/ABIDE_Initiative/Outputs/freesurfer/5.1"
+  phenotypic_url: "https://s3.amazonaws.com/fcp-indi/data/Projects/ABIDE_Initiative/Phenotypic_V1_0b_preprocessed1.csv"
+  raw_data_dir: "data/raw"
+  mri_dir: "data/raw/abide_freesurfer"
+  phenotypic_file: "data/raw/phenotypic.csv"
+
+data_preparation:
+  raw_mri_dir: data/raw/abide_freesurfer
+  phenotypic_file: data/raw/phenotypic.csv
+  output_dir: data/split
+  test_size: 0.3
+  random_state: 42
+
+preprocessing:
+  split_dir: data/split
+  output_dir: data/preprocessed
+  image_size: 256
+
+augmentation:
+  input_dir: data/preprocessed/
+  output_dir: data/augmented/train
+  rotation: 3
+  noise_std: 0.01
+  elastic_alpha: 8
+  elastic_sigma: 6
+
+feature_extraction:
+  output_dir: artifacts/features
+
+feature_scaling:
+  output_dir: artifacts/scaled_features
+
+feature_selection:
+  output_dir: artifacts/selected_features
+  top_k: 80
+
+model_training:
+  output_dir: artifacts/models
+
+evaluation:
+  output_dir: artifacts/evaluation

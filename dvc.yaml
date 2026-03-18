@@ -1,0 +1,160 @@
+# stages:
+#   data_ingestion:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_01_data_ingestion"
+#     deps:
+#       - config/config.yaml
+#       - src/components/data_ingestion.py
+#       - src/pipeline/stage_01_data_ingestion.py
+#     outs:
+#       - data/raw
+#   data_split:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_02_data_split"
+#     deps:
+#       - config/config.yaml
+#       - src/components/data_split.py
+#       - src/pipeline/stage_02_data_split.py
+#       - data/raw
+#     outs:
+#       - data/split
+#   preprocessing:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_03_preprocessing"
+#     deps:
+#       - config/config.yaml
+#       - src/components/preprocessing.py
+#       - src/pipeline/stage_03_preprocessing.py
+#       - data/split
+#     outs:
+#       - data/preprocessed 
+#   augmentation:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_04_augmentation"
+#     deps:
+#       - config/config.yaml
+#       - src/components/data_augmentation.py
+#       - data/preprocessed
+#     outs:
+#       - data/augmented
+#   feature_extraction:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_05_feature_extraction"
+#     deps:
+#       - src/components/feature_extraction.py
+#       - src/pipeline/stage_05_feature_extraction.py
+#       - data/augmented
+#       - data/preprocessed/test
+#     outs:
+#       - artifacts/features
+#   feature_selection:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_05b_feature_selection"
+#     deps:
+#       - artifacts/features/train_features.csv
+#       - artifacts/features/test_features.csv
+#       - src/components/feature_selection.py
+#       - src/pipeline/stage_05b_feature_selection.py
+#     outs:
+#       - artifacts/selected_features
+#   # feature_scaling:
+#   #   cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_06_feature_scaling"
+#   #   deps:
+#   #     - artifacts/selected_features
+#   #     - src/components/feature_scaling.py
+#   #     - src/pipeline/stage_06_feature_scaling.py
+#   #   outs:
+#   #     - artifacts/scaled
+#   model_training:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_07_model_training"
+#     deps:
+#       - artifacts/selected_features
+#       - src/components/model_training.py
+#       - src/pipeline/stage_07_model_training.py
+#     outs:
+#       - artifacts/models
+#   model_evaluation:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_08_model_evaluation"
+#     deps:
+#       - artifacts/models
+#       - artifacts/selected_features
+#       - src/components/model_evaluation.py
+#     outs:
+#       - artifacts/evaluation
+stages:
+
+  data_ingestion:
+    cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_01_data_ingestion"
+    deps:
+      - config/config.yaml
+      - src/components/data_ingestion.py
+      - src/pipeline/stage_01_data_ingestion.py
+    outs:
+      - data/raw
+
+  data_preparation:
+    cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_02_data_preparation"
+    deps:
+      - config/config.yaml
+      - src/components/data_preparation.py
+      - src/pipeline/stage_02_data_preparation.py
+      - data/raw
+    outs:
+      - data/split
+
+  preprocessing:
+    cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_03_preprocessing"
+    deps:
+      - config/config.yaml
+      - src/components/preprocessing.py
+      - src/pipeline/stage_03_preprocessing.py
+      - data/split
+    outs:
+      - data/preprocessed 
+
+  # augmentation:
+  #   cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_04_augmentation"
+  #   deps:
+  #     - config/config.yaml
+  #     - src/components/data_augmentation.py
+  #     - src/pipeline/stage_04_augmentation.py
+  #     - data/preprocessed
+  #   outs:
+  #     - data/augmented
+
+  feature_extraction:
+    cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_05_feature_extraction"
+    deps:
+      - config/config.yaml
+      - src/components/feature_extraction.py
+      - src/pipeline/stage_05_feature_extraction.py
+      - data/preprocessed/train
+      - data/preprocessed/test
+    outs:
+      - artifacts/features
+
+  feature_selection:
+    cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_05b_feature_selection"
+    deps:
+      - config/config.yaml
+      - artifacts/features/train_features.csv
+      - artifacts/features/test_features.csv
+      - src/components/feature_selection.py
+      - src/pipeline/stage_05b_feature_selection.py
+    outs:
+      - artifacts/selected_features
+
+  model_training:
+    cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_07_model_training"
+    deps:
+      - config/config.yaml
+      - artifacts/selected_features
+      - src/components/model_training.py
+      - src/pipeline/stage_07_model_training.py
+    outs:
+      - artifacts/models
+
+  model_evaluation:
+    cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_08_model_evaluation"
+    deps:
+      - config/config.yaml
+      - artifacts/models
+      - artifacts/selected_features
+      - src/components/model_evaluation.py
+      - src/pipeline/stage_08_model_evaluation.py
+    outs:
+      - artifacts/evaluation
