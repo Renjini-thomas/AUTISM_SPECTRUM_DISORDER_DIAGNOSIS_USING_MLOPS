@@ -45,7 +45,7 @@ class Preprocessing:
 
         # ⭐ TRAIN → 5 slices
         # ⭐ TEST → only mid slice
-        offsets = [-2, -1, 0, 1, 2] if multi_slice else [0]
+        offsets = list(range(-10,11)) if multi_slice else [0]
 
         slices = []
 
@@ -104,7 +104,8 @@ class Preprocessing:
                     split_name
                 )
 
-                multi_slice_flag = True if split_name == "train" else False
+                # ⭐ NOW BOTH TRAIN AND TEST → MULTI SLICE
+                multi_slice_flag = True
 
                 for class_folder in ["autism", "control"]:
 
@@ -147,10 +148,8 @@ class Preprocessing:
 
                             png_img = self.save_png(arr)
 
-                            if multi_slice_flag:
-                                save_name = f"{subject}_slice{i}.png"
-                            else:
-                                save_name = f"{subject}.png"
+                            # ⭐ ALWAYS SAVE WITH SLICE INDEX NOW
+                            save_name = f"{subject}_slice{i}.png"
 
                             cv2.imwrite(
                                 os.path.join(image_dir, save_name),

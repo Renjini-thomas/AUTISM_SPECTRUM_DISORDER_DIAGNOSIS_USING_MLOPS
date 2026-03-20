@@ -104,17 +104,7 @@ stages:
       - src/pipeline/stage_03_preprocessing.py
       - data/split
     outs:
-      - data/preprocessed 
-
-  # augmentation:
-  #   cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_04_augmentation"
-  #   deps:
-  #     - config/config.yaml
-  #     - src/components/data_augmentation.py
-  #     - src/pipeline/stage_04_augmentation.py
-  #     - data/preprocessed
-  #   outs:
-  #     - data/augmented
+      - data/preprocessed
 
   feature_extraction:
     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_05_feature_extraction"

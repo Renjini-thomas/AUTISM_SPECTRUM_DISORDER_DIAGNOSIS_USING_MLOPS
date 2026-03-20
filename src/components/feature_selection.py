@@ -131,10 +131,6 @@ from dotenv import load_dotenv
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.feature_selection import RFECV
-from sklearn.model_selection import StratifiedKFold
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import make_scorer, recall_score
 
 
 class FeatureSelection:
@@ -175,70 +171,43 @@ class FeatureSelection:
 
         X_train, y_train, X_test, y_test = self.load_data()
 
-        with mlflow.start_run(run_name="feature_selection_stable_rfecv"):
+        with mlflow.start_run(run_name="feature_processing_scaler_pca"):
 
-            print("Scaling Features...")
+            print("Scaling Deep Features...")
 
             scaler = StandardScaler()
 
-            X_train = scaler.fit_transform(X_train)
-            X_test = scaler.transform(X_test)
+            X_train_scaled = scaler.fit_transform(X_train)
+            X_test_scaled = scaler.transform(X_test)
 
-            print("Applying PCA Stabilisation...")
+            print("Applying PCA Dimensionality Reduction...")
 
+            # ⭐ VERY IMPORTANT — good range for your dataset size
             pca = PCA(n_components=100, random_state=42)
 
-            X_train = pca.fit_transform(X_train)
-            X_test = pca.transform(X_test)
+            X_train_pca = pca.fit_transform(X_train_scaled)
+            X_test_pca = pca.transform(X_test_scaled)
 
-            print("Running RFECV...")
+            print("Final Feature Shape:", X_train_pca.shape)
 
-            recall_scorer = make_scorer(
-                recall_score,
-                pos_label="autism"
-            )
+            # ================= SAVE ARRAYS =================
 
-            estimator = RandomForestClassifier(
-                n_estimators=400,
-                class_weight="balanced",
-                random_state=42,
-                n_jobs=-1
-            )
+            np.save(self.output_dir / "X_train.npy", X_train_pca)
+            np.save(self.output_dir / "X_test.npy", X_test_pca)
 
-            selector = RFECV(
-                estimator=estimator,
-                step=10,
-                cv=StratifiedKFold(
-                    n_splits=5,
-                    shuffle=True,
-                    random_state=42
-                ),
-                scoring=recall_scorer,
-                n_jobs=-1
-            )
-
-            selector.fit(X_train, y_train)
-
-            X_train_sel = selector.transform(X_train)
-            X_test_sel = selector.transform(X_test)
-
-            print("Selected Features:", selector.n_features_)
-
-            # SAVE ARRAYS
-            np.save(self.output_dir / "X_train.npy", X_train_sel)
-            np.save(self.output_dir / "X_test.npy", X_test_sel)
             np.save(self.output_dir / "y_train.npy", y_train.values)
             np.save(self.output_dir / "y_test.npy", y_test.values)
 
-            # SAVE OBJECTS
+            # ================= SAVE OBJECTS =================
+
             joblib.dump(scaler, self.output_dir / "scaler.joblib")
             joblib.dump(pca, self.output_dir / "pca.joblib")
-            joblib.dump(selector, self.output_dir / "selector.joblib")
 
-            # LOG
-            mlflow.log_param("pca_components", 150)
-            mlflow.log_param("rfecv_step", 10)
-            mlflow.log_param("rf_estimators", 400)
-            mlflow.log_param("num_selected_features", selector.n_features_)
+            # ================= LOG =================
 
-            print("Feature Selection Completed ✅")
+            mlflow.log_param("feature_processing", "StandardScaler + PCA")
+            mlflow.log_param("pca_components", 100)
+            mlflow.log_param("original_feature_dim", X_train.shape[1])
+            mlflow.log_param("final_feature_dim", X_train_pca.shape[1])
+
+            print("Feature Processing Completed ✅")

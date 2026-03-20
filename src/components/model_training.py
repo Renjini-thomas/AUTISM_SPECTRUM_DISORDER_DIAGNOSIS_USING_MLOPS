@@ -11,7 +11,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import recall_score, f1_score, roc_auc_score, accuracy_score
 from sklearn.model_selection import StratifiedKFold
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
+from sklearn.svm import SVC, LinearSVC
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
@@ -50,22 +50,17 @@ class ModelTrainer:
         return {
 
             "knn": (
-                Pipeline([
-                    ("scaler", StandardScaler()),
-                    ("model", KNeighborsClassifier())
-                ]),
-                {"model__n_neighbors": [3,5,7]}
+                KNeighborsClassifier(),
+                {"n_neighbors": [5,7]}
             ),
 
-            "svm": (
-                Pipeline([
-                    ("scaler", StandardScaler()),
-                    ("model", SVC(probability=True, class_weight="balanced"))
-                ]),
-                {
-                    "model__C":[0.1,1,10],
-                    "model__kernel":["rbf","linear"]
-                }
+            "svm": (   # ⭐ FAST LINEAR SVM
+                LinearSVC(
+                    C=1,
+                    class_weight="balanced",
+                    max_iter=5000
+                ),
+                {}
             ),
 
             "decision Tree": (
@@ -85,7 +80,7 @@ class ModelTrainer:
 
             "logistic regression": (
                 Pipeline([
-                    ("scaler", StandardScaler()),
+                    
                     ("model", LogisticRegression(max_iter=1000, class_weight="balanced"))
                 ]),
                 {"model__C":[0.1,1,10]}

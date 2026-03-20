@@ -379,12 +379,19 @@ class FeatureExtraction:
         )
 
         # REMOVE CLASSIFIER
-        self.feature_extractor = torch.nn.Sequential(
-            *list(model.children())[:-1]
-        )
+        self.backbone = torch.nn.Sequential(
+                    model.conv1,
+                    model.bn1,
+                    model.relu,
+                    model.maxpool,
+                    model.layer1,
+                    model.layer2,
+                    model.layer3,
+                    model.layer4
+    )
 
-        self.feature_extractor.to(self.device)
-        self.feature_extractor.eval()
+        self.backbone.to(self.device)
+        self.backbone.eval()
 
         # TRANSFORM (NO GRAYSCALE — already single channel MRI)
         self.transform = transforms.Compose([
@@ -406,14 +413,26 @@ class FeatureExtraction:
         img = self.transform(img).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            feat = self.feature_extractor(img)
+
+            feat_map = self.backbone(img)
+
+            # ⭐ GLOBAL AVG
+            avg_pool = torch.mean(feat_map, dim=(2,3))
+
+            # ⭐ GLOBAL MAX
+            max_pool = torch.amax(feat_map, dim=(2,3))
+
+            # ⭐ GLOBAL STD (VERY IMPORTANT FOR MRI TEXTURE)
+            std_pool = torch.std(feat_map, dim=(2,3))
+
+            feat = torch.cat([avg_pool, max_pool, std_pool], dim=1)
 
         feat = feat.squeeze().cpu().numpy()
 
         return feat
 
     # ================= PROCESS DATASET =================
-    def process_dataset(self, base_dir):
+    def process_dataset(self, base_dir,is_train=True):
 
         rows = []
 
@@ -423,12 +442,16 @@ class FeatureExtraction:
                 continue
 
             label = class_dir.name
-
             files = list(class_dir.glob("*.png"))
 
             print(f"{label} → {len(files)} images found")
 
+            subject_dict = {}
+
             for file in tqdm(files, desc=f"Processing {label}"):
+
+                fname = file.stem
+                subject_id = fname.split("_slice")[0]
 
                 img = cv2.imread(str(file), 0)
 
@@ -440,9 +463,23 @@ class FeatureExtraction:
 
                 feat = self.extract_feature(img)
 
-                rows.append(list(feat) + [label])
+                subject_dict.setdefault(subject_id, []).append(feat)
 
-        columns = [f"resnet_feat_{i}" for i in range(2048)] + ["label"]
+            for subject_id, feat_list in subject_dict.items():
+
+                feat_stack = np.vstack(feat_list)
+
+                mean_feat = np.mean(feat_stack, axis=0)
+                max_feat = np.max(feat_stack, axis=0)
+                std_feat = np.std(feat_stack, axis=0)
+
+                subject_feat = np.concatenate(
+                    [mean_feat, max_feat, std_feat]
+                )
+
+                rows.append(list(subject_feat) + [label])
+
+        columns = [f"deep_feat_{i}" for i in range(len(subject_feat))] + ["label"]
 
         return pd.DataFrame(rows, columns=columns)
 
@@ -469,10 +506,10 @@ class FeatureExtraction:
         ):
 
             print("Extracting TRAIN deep features...")
-            train_df = self.process_dataset(self.train_dir)
+            train_df = self.process_dataset(self.train_dir, is_train=True)
 
             print("Extracting TEST deep features...")
-            test_df = self.process_dataset(self.test_dir)
+            test_df = self.process_dataset(self.test_dir, is_train=False)
 
             train_path = self.output_dir / "train_features.csv"
             test_path = self.output_dir / "test_features.csv"
@@ -481,7 +518,7 @@ class FeatureExtraction:
             test_df.to_csv(test_path, index=False)
 
             mlflow.log_param("feature_type", "ResNet50")
-            mlflow.log_param("feature_dim", 2048)
+            mlflow.log_param("feature_dim", 6144)
             mlflow.log_param("device", str(self.device))
 
             mlflow.log_artifact(str(train_path))

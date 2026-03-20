@@ -88,9 +88,25 @@ class ModelEvaluation:
             f1 = f1_score(y_test, y_pred, pos_label="autism")
             acc = accuracy_score(y_test, y_pred)
 
-            proba = model.predict_proba(X_test)
-            autistic_index = list(model.classes_).index("autism")
-            y_prob = proba[:, autistic_index]
+            if hasattr(model, "predict_proba"):
+
+                proba = model.predict_proba(X_test)
+
+                autistic_index = list(model.classes_).index("autism")
+
+                y_prob = proba[:, autistic_index]
+
+            elif hasattr(model, "decision_function"):
+
+                scores = model.decision_function(X_test)
+
+                # scale scores to 0-1
+                y_prob = (scores - scores.min()) / (scores.max() - scores.min() + 1e-8)
+
+            else:
+
+                print("Model has no probability or decision score")
+                y_prob = np.zeros(len(X_test))
 
             auc = roc_auc_score(
                 (y_test == "autism").astype(int),
@@ -137,7 +153,7 @@ class ModelEvaluation:
             plt.figure()
 
             RocCurveDisplay.from_predictions(
-                (y_test == "autistic").astype(int),
+                (y_test == "autism").astype(int),
                 y_prob
             )
 
