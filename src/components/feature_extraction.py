@@ -373,34 +373,23 @@ class FeatureExtraction:
             "cuda" if torch.cuda.is_available() else "cpu"
         )
 
-        # LOAD RESNET50
-        model = models.resnet50(
-            weights=models.ResNet50_Weights.IMAGENET1K_V1
+        # LOAD DENSENET121
+        model = models.densenet121(
+            weights=models.DenseNet121_Weights.IMAGENET1K_V1
         )
 
-        # REMOVE CLASSIFIER
-        self.backbone = torch.nn.Sequential(
-                    model.conv1,
-                    model.bn1,
-                    model.relu,
-                    model.maxpool,
-                    model.layer1,
-                    model.layer2,
-                    model.layer3,
-                    model.layer4
-    )
+        # USE ONLY FEATURE BACKBONE
+        self.backbone = model.features
 
         self.backbone.to(self.device)
         self.backbone.eval()
 
-        # TRANSFORM (NO GRAYSCALE — already single channel MRI)
+        # TRANSFORM
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Lambda(
-                lambda x: x.repeat(3, 1, 1)
-            ),  # make 3-channel for ResNet
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
             transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],
                 std=[0.229, 0.224, 0.225]
@@ -416,23 +405,18 @@ class FeatureExtraction:
 
             feat_map = self.backbone(img)
 
-            # ⭐ GLOBAL AVG
-            avg_pool = torch.mean(feat_map, dim=(2,3))
+            feat_map = torch.relu(feat_map)
 
-            # ⭐ GLOBAL MAX
-            max_pool = torch.amax(feat_map, dim=(2,3))
-
-            # ⭐ GLOBAL STD (VERY IMPORTANT FOR MRI TEXTURE)
-            std_pool = torch.std(feat_map, dim=(2,3))
+            avg_pool = torch.mean(feat_map, dim=(2, 3))
+            max_pool = torch.amax(feat_map, dim=(2, 3))
+            std_pool = torch.std(feat_map, dim=(2, 3))
 
             feat = torch.cat([avg_pool, max_pool, std_pool], dim=1)
 
-        feat = feat.squeeze().cpu().numpy()
-
-        return feat
+        return feat.squeeze().cpu().numpy()
 
     # ================= PROCESS DATASET =================
-    def process_dataset(self, base_dir,is_train=True):
+    def process_dataset(self, base_dir):
 
         rows = []
 
@@ -450,8 +434,7 @@ class FeatureExtraction:
 
             for file in tqdm(files, desc=f"Processing {label}"):
 
-                fname = file.stem
-                subject_id = fname.split("_slice")[0]
+                subject_id = file.stem.split("_slice")[0]
 
                 img = cv2.imread(str(file), 0)
 
@@ -465,6 +448,7 @@ class FeatureExtraction:
 
                 subject_dict.setdefault(subject_id, []).append(feat)
 
+            # SUBJECT LEVEL AGGREGATION
             for subject_id, feat_list in subject_dict.items():
 
                 feat_stack = np.vstack(feat_list)
@@ -473,27 +457,33 @@ class FeatureExtraction:
                 max_feat = np.max(feat_stack, axis=0)
                 std_feat = np.std(feat_stack, axis=0)
 
-                subject_feat = np.concatenate(
-                    [mean_feat, max_feat, std_feat]
-                )
-
+                # subject_feat = np.concatenate(
+                #     [mean_feat, max_feat, std_feat]
+                # )
+                # subject_feat = np.concatenate([mean_feat, std_feat])
+                subject_feat = mean_feat
                 rows.append(list(subject_feat) + [label])
 
-        columns = [f"deep_feat_{i}" for i in range(len(subject_feat))] + ["label"]
+        if len(rows) == 0:
+            raise ValueError("No features extracted!")
 
-        return pd.DataFrame(rows, columns=columns)
+        feature_dim = len(rows[0]) - 1
+
+        columns = [
+            f"deep_feat_{i}" for i in range(feature_dim)
+        ] + ["label"]
+
+        df = pd.DataFrame(rows, columns=columns)
+
+        return df, feature_dim
 
     # ================= RUN =================
     def run(self):
 
         load_dotenv()
 
-        os.environ["MLFLOW_TRACKING_USERNAME"] = os.getenv(
-            "DAGSHUB_USERNAME"
-        )
-        os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv(
-            "DAGSHUB_TOKEN"
-        )
+        os.environ["MLFLOW_TRACKING_USERNAME"] = os.getenv("DAGSHUB_USERNAME")
+        os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("DAGSHUB_TOKEN")
 
         mlflow.set_tracking_uri(
             "https://dagshub.com/renjini2539thomas/AUTISM_SPECTRUM_DISORDER_DIAGNOSIS_USING_MLOPS.mlflow"
@@ -501,15 +491,13 @@ class FeatureExtraction:
 
         mlflow.set_experiment("ASD_DEEP_FEATURES")
 
-        with mlflow.start_run(
-            run_name="resnet50_feature_extraction"
-        ):
+        with mlflow.start_run(run_name="densenet121_feature_extraction"):
 
             print("Extracting TRAIN deep features...")
-            train_df = self.process_dataset(self.train_dir, is_train=True)
+            train_df, feature_dim = self.process_dataset(self.train_dir)
 
             print("Extracting TEST deep features...")
-            test_df = self.process_dataset(self.test_dir, is_train=False)
+            test_df, _ = self.process_dataset(self.test_dir)
 
             train_path = self.output_dir / "train_features.csv"
             test_path = self.output_dir / "test_features.csv"
@@ -517,11 +505,11 @@ class FeatureExtraction:
             train_df.to_csv(train_path, index=False)
             test_df.to_csv(test_path, index=False)
 
-            mlflow.log_param("feature_type", "ResNet50")
-            mlflow.log_param("feature_dim", 6144)
+            mlflow.log_param("feature_type", "DenseNet121")
+            mlflow.log_param("feature_dim", feature_dim)
             mlflow.log_param("device", str(self.device))
 
             mlflow.log_artifact(str(train_path))
             mlflow.log_artifact(str(test_path))
 
-            print("Deep Feature Extraction Completed ✅")
+            print("DenseNet Feature Extraction Completed ✅")

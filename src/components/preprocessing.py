@@ -43,9 +43,7 @@ class Preprocessing:
 
         mid = volume.shape[0] // 2
 
-        # ⭐ TRAIN → 5 slices
-        # ⭐ TEST → only mid slice
-        offsets = list(range(-10,11)) if multi_slice else [0]
+        offsets = list(range(-5,6)) if multi_slice else [0]
 
         slices = []
 

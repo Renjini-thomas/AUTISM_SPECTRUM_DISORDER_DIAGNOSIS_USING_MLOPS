@@ -183,7 +183,7 @@ class FeatureSelection:
             print("Applying PCA Dimensionality Reduction...")
 
             # ⭐ VERY IMPORTANT — good range for your dataset size
-            pca = PCA(n_components=100, random_state=42)
+            pca = PCA(n_components=0.96, random_state=42)
 
             X_train_pca = pca.fit_transform(X_train_scaled)
             X_test_pca = pca.transform(X_test_scaled)

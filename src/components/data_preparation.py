@@ -104,6 +104,23 @@ from src.utils.exception import CustomException
 CONFIG_PATH = "config/config.yaml"
 
 
+# ⭐ SUBJECT BLACKLIST (NOISY / WRONG ORIENTATION)
+UNWANTED_SUBJECTS = {
+
+    # AUTISM
+    "UCLA_51232","UCLA_51243","UCLA_51244","UCLA_51245",
+    "UCLA_51246","UCLA_51247","UM_1_0050273","UM_1_0050277",
+    "UM_1_0050283","UM_1_0050287","UM_1_0050309","UM_1_0050313",
+    "UM_1_0050323","UCLA_51233","UCLA_51242","UM_1_0050272",
+    "UM_1_0050274","UM_1_0050276","UM_1_0050288",
+
+    # CONTROL
+    "UCLA_2_0051312","UCLA_2_0051314","UCLA_51310",
+    "UM_1_0050327","UM_1_0050328","UCLA_2_0051316",
+    "UCLA_51270"
+}
+
+
 @dataclass
 class DataPreparationConfig:
     raw_mri_dir: str
@@ -139,12 +156,21 @@ class DataPreparation:
 
         dataset = []
 
+        skipped = 0
+
         for subject_dir in Path(self.config.raw_mri_dir).iterdir():
 
             if not subject_dir.is_dir():
                 continue
 
             subject_id = subject_dir.name
+
+            # ⭐ DISCARD BAD SUBJECTS
+            if subject_id in UNWANTED_SUBJECTS:
+                logging.info(f"Skipping unwanted subject → {subject_id}")
+                skipped += 1
+                continue
+
             brain_file = subject_dir / "mri" / "brain.mgz"
 
             if not brain_file.exists():
@@ -172,6 +198,7 @@ class DataPreparation:
         manifest = pd.DataFrame(dataset)
 
         logging.info(f"Total usable subjects: {len(manifest)}")
+        logging.info(f"Total discarded subjects: {skipped}")
 
         return manifest
 

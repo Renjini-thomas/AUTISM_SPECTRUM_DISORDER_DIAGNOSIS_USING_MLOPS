@@ -88,28 +88,27 @@ class ModelTrainer:
         }
     def run(self):
 
-        X_train, y_train, X_test, y_test = self.load_data()
+        X_train, y_train, _, _ = self.load_data()   # ⭐ DO NOT USE TEST
 
         best_model = None
-        best_recall = 0
-        best_f1 = 0
-        best_auc = 0
         best_name = ""
 
-        model_complexity_rank = {
-            "logistic regression": 1,
-            "knn": 2,
-            "decision Tree": 3,
-            "svm": 4,
-            "random forest": 5,
-            "gradient boosting": 6
-        }
+        best_recall = 0
+        best_auc = 0
+        best_f1 = 0
 
         cv = StratifiedKFold(
             n_splits=5,
             shuffle=True,
             random_state=42
         )
+
+        scoring = {
+            "recall": make_scorer(recall_score, pos_label="autism"),
+            "auc": "roc_auc",
+            "f1": make_scorer(f1_score, pos_label="autism"),
+            "accuracy": "accuracy"
+        }
 
         for name, (model, params) in self.get_models().items():
 
@@ -121,79 +120,63 @@ class ModelTrainer:
                     model,
                     params,
                     cv=cv,
-                    scoring="roc_auc",   # ⭐ VERY IMPORTANT CHANGE
-                    n_jobs=-1
+                    scoring=scoring,
+                    refit="recall",      # ⭐ model refitted on best recall
+                    n_jobs=-1,
+                    verbose=1
                 )
 
                 grid.fit(X_train, y_train)
 
                 best_estimator = grid.best_estimator_
 
-                y_pred = best_estimator.predict(X_test)
+                idx = grid.best_index_
 
-                recall = recall_score(y_test, y_pred, pos_label="autism")
-                f1 = f1_score(y_test, y_pred, pos_label="autism")
-                acc = accuracy_score(y_test, y_pred)
-
-                try:
-                    proba = best_estimator.predict_proba(X_test)
-                    autistic_index = list(best_estimator.classes_).index("autism")
-                    y_prob = proba[:, autistic_index]
-
-                    auc = roc_auc_score(
-                        (y_test == "autism").astype(int),
-                        y_prob
-                    )
-                except:
-                    auc = 0
+                cv_recall = grid.cv_results_["mean_test_recall"][idx]
+                cv_auc = grid.cv_results_["mean_test_auc"][idx]
+                cv_f1 = grid.cv_results_["mean_test_f1"][idx]
+                cv_acc = grid.cv_results_["mean_test_accuracy"][idx]
 
                 mlflow.log_params(grid.best_params_)
-                mlflow.log_metric("recall", recall)
-                mlflow.log_metric("f1", f1)
-                mlflow.log_metric("accuracy", acc)
-                mlflow.log_metric("auc", auc)
+                mlflow.log_metric("cv_recall", cv_recall)
+                mlflow.log_metric("cv_auc", cv_auc)
+                mlflow.log_metric("cv_f1", cv_f1)
+                mlflow.log_metric("cv_accuracy", cv_acc)
 
-                mlflow.sklearn.log_model(best_estimator, name="model")
+                print(f"{name} → Recall:{cv_recall:.4f} AUC:{cv_auc:.4f} F1:{cv_f1:.4f}")
 
-                print(f"{name} Recall:", recall)
-
-                # ⭐ BEST MODEL SELECTION RULE
-                if recall > best_recall:
+                # ⭐ MODEL SELECTION RULE
+                if cv_recall > best_recall:
 
                     best_model = best_estimator
-                    best_recall = recall
-                    best_f1 = f1
-                    best_auc = auc
                     best_name = name
+                    best_recall = cv_recall
+                    best_auc = cv_auc
+                    best_f1 = cv_f1
 
-                elif recall == best_recall:
+                elif cv_recall == best_recall:
 
-                    if f1 > best_f1:
+                    if cv_auc > best_auc:
 
                         best_model = best_estimator
-                        best_f1 = f1
-                        best_auc = auc
                         best_name = name
+                        best_auc = cv_auc
+                        best_f1 = cv_f1
 
-                    elif f1 == best_f1:
+                    elif cv_auc == best_auc:
 
-                        if auc > best_auc:
+                        if cv_f1 > best_f1:
 
                             best_model = best_estimator
-                            best_auc = auc
                             best_name = name
-
-                        elif auc == best_auc:
-
-                            if model_complexity_rank[name] < model_complexity_rank[best_name]:
-
-                                best_model = best_estimator
-                                best_name = name
+                            best_f1 = cv_f1
 
         joblib.dump(best_model, self.model_dir / "best_model.joblib")
 
-        print("BEST MODEL:", best_name)
-        print("Recall:", best_recall)
-        print("F1:", best_f1)
+        print("⭐ BEST MODEL:", best_name)
+        print("CV Recall:", best_recall)
+        print("CV AUC:", best_auc)
+        print("CV F1:", best_f1)
+        print("CV Accuracy:", cv_acc)
 
-        print("Model saved ✅")
+        print("Model Saved ✅")
