@@ -42,8 +42,11 @@ class Preprocessing:
         volume = img.get_fdata()
 
         mid = volume.shape[0] // 2
-
+        # 11 slices
         offsets = list(range(-5,6)) if multi_slice else [0]
+
+        # 9 slices
+        # offsets = list(range(-4,5)) if multi_slice else [0]
 
         slices = []
 
@@ -54,7 +57,7 @@ class Preprocessing:
             if idx < 0 or idx >= volume.shape[0]:
                 continue
 
-            slice_2d = volume[idx, :, :]
+            slice_2d = volume[idx, :,: ]
 
             # orientation fix
             slice_2d = np.rot90(slice_2d)
