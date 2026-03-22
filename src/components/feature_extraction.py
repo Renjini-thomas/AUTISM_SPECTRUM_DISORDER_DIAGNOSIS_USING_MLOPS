@@ -441,8 +441,8 @@ class FeatureExtraction:
                 if img is None:
                     continue
 
-                img = (img - img.min()) / (img.max() - img.min() + 1e-8)
-                img = (img * 255).astype("uint8")
+                # img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+                # img = (img * 255).astype("uint8")
 
                 feat = self.extract_feature(img)
 
@@ -513,3 +513,206 @@ class FeatureExtraction:
             mlflow.log_artifact(str(test_path))
 
             print("DenseNet Feature Extraction Completed ✅")
+# import torch
+# import torchvision.models as models
+# import torchvision.transforms as transforms
+
+# import numpy as np
+# import pandas as pd
+# import mlflow
+# import os
+
+# from pathlib import Path
+# from tqdm import tqdm
+# from dotenv import load_dotenv
+# import cv2
+
+
+# class FeatureExtraction:
+
+#     def __init__(self):
+
+#         self.train_dir = Path("data/preprocessed/train")
+#         self.test_dir  = Path("data/preprocessed/test")
+
+#         self.output_dir = Path("artifacts/features")
+#         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+#         # DEVICE
+#         self.device = torch.device(
+#             "cuda" if torch.cuda.is_available() else "cpu"
+#         )
+
+#         # LOAD DENSENET121
+#         model = models.densenet121(
+#             weights=models.DenseNet121_Weights.IMAGENET1K_V1
+#         )
+
+#         # USE ONLY FEATURE BACKBONE
+#         self.backbone = model.features
+#         self.backbone.to(self.device)
+#         self.backbone.eval()
+
+#         # TRANSFORM
+#         # ✅ PNG from preprocessing is already uint8 (z-score → min-max scaled)
+#         # ✅ grayscale → 3-channel via repeat (required for ImageNet-pretrained model)
+#         self.transform = transforms.Compose([
+#             transforms.ToPILImage(),
+#             transforms.Resize((224, 224)),
+#             transforms.ToTensor(),                            # → [0.0, 1.0], shape (1,H,W)
+#             transforms.Lambda(lambda x: x.repeat(3, 1, 1)),  # (1,H,W) → (3,H,W)
+#             transforms.Normalize(
+#                 mean=[0.485, 0.456, 0.406],
+#                 std=[0.229, 0.224, 0.225]
+#             )
+#         ])
+
+#     # ================= FEATURE EXTRACTION =================
+#     def extract_feature(self, img):
+#         """
+#         img : uint8 grayscale numpy array (already normalized PNG from preprocessing)
+
+#         FIX 1 — Removed erroneous torch.relu():
+#             DenseNet121's last dense block already ends with BatchNorm + ReLU.
+#             Applying ReLU again was zeroing out negative activations that carry
+#             real structural contrast information from MRI tissue boundaries.
+
+#         FIX 2 — Returns only avg_pool (1024-d):
+#             Smarter weighting is done at subject level (weighted mean by L2 norm),
+#             keeping feature dimensionality at 1024 which is safe for ~760 subjects.
+#         """
+#         x = self.transform(img).unsqueeze(0).to(self.device)
+
+#         with torch.no_grad():
+#             feat_map = self.backbone(x)                       # (1, 1024, 7, 7)
+#             # ✅ FIX 1: No extra relu — DenseNet already has BN+ReLU internally
+#             avg_pool = torch.mean(feat_map, dim=(2, 3))       # (1, 1024)
+
+#         return avg_pool.squeeze().cpu().numpy()               # (1024,)
+
+#     # ================= PROCESS DATASET =================
+#     def process_dataset(self, base_dir):
+
+#         rows = []
+
+#         for class_dir in sorted(base_dir.iterdir()):
+
+#             if not class_dir.is_dir():
+#                 continue
+
+#             label = class_dir.name
+#             files = sorted(class_dir.glob("*.png"))
+
+#             print(f"\n{label} → {len(files)} slices found")
+
+#             subject_dict = {}
+
+#             for file in tqdm(files, desc=f"Processing {label}"):
+
+#                 subject_id = file.stem.split("_slice")[0]
+
+#                 # ✅ FIX 2: Removed double normalization.
+#                 # preprocessing.py already does:
+#                 #   z-score per slice → min-max scale → save uint8 PNG
+#                 # Re-normalizing here was distorting the intensity distribution.
+#                 img = cv2.imread(str(file), cv2.IMREAD_GRAYSCALE)
+
+#                 if img is None:
+#                     print(f"  ⚠ Could not read: {file.name}")
+#                     continue
+
+#                 # ✅ Skip near-empty / background slices
+#                 # Edge mid-sagittal slices sometimes have very low variance
+#                 # (mostly skull/background) — these add noise to aggregation
+#                 if np.var(img) < 50:
+#                     continue
+
+#                 feat = self.extract_feature(img)
+#                 subject_dict.setdefault(subject_id, []).append(feat)
+
+#             # =============================================
+#             # SUBJECT LEVEL AGGREGATION
+#             # =============================================
+#             for subject_id, feat_list in subject_dict.items():
+
+#                 feat_stack = np.vstack(feat_list)   # (n_slices, 1024)
+
+#                 # ✅ FIX 3: Weighted mean by L2 norm of each slice's feature vector.
+#                 # Slices with more brain tissue produce higher activation norms
+#                 # and contribute more to the subject representation.
+#                 # Feature dim stays at 1024 — no dimensionality explosion.
+#                 norms   = np.linalg.norm(feat_stack, axis=1)  # (n_slices,)
+#                 weights = norms / (norms.sum() + 1e-8)         # normalize to sum=1
+
+#                 subject_feat = np.average(
+#                     feat_stack, axis=0, weights=weights
+#                 )  # (1024,)
+
+#                 rows.append(list(subject_feat) + [label])
+
+#         if len(rows) == 0:
+#             raise ValueError(
+#                 "No features extracted! Check data paths and PNG files."
+#             )
+
+#         feature_dim = len(rows[0]) - 1
+#         columns = [f"deep_feat_{i}" for i in range(feature_dim)] + ["label"]
+
+#         df = pd.DataFrame(rows, columns=columns)
+
+#         print(f"\nSubject counts:\n{df['label'].value_counts().to_string()}")
+
+#         return df, feature_dim
+
+#     # ================= RUN =================
+#     def run(self):
+
+#         load_dotenv()
+
+#         os.environ["MLFLOW_TRACKING_USERNAME"] = os.getenv("DAGSHUB_USERNAME")
+#         os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("DAGSHUB_TOKEN")
+
+#         mlflow.set_tracking_uri(
+#             "https://dagshub.com/renjini2539thomas/AUTISM_SPECTRUM_DISORDER_DIAGNOSIS_USING_MLOPS.mlflow"
+#         )
+
+#         mlflow.set_experiment("ASD_DEEP_FEATURES")
+
+#         with mlflow.start_run(run_name="densenet121_feature_extraction_v3"):
+
+#             print("Extracting TRAIN deep features...")
+#             train_df, feature_dim = self.process_dataset(self.train_dir)
+
+#             print("\nExtracting TEST deep features...")
+#             test_df, _ = self.process_dataset(self.test_dir)
+
+#             train_path = self.output_dir / "train_features.csv"
+#             test_path  = self.output_dir / "test_features.csv"
+
+#             train_df.to_csv(train_path, index=False)
+#             test_df.to_csv(test_path, index=False)
+
+#             mlflow.log_param("model_backbone",       "DenseNet121_ImageNet")
+#             mlflow.log_param("feature_dim",           feature_dim)
+#             mlflow.log_param("pooling",               "global_avg_pool")
+#             mlflow.log_param("aggregation",           "weighted_mean_l2norm")
+#             mlflow.log_param("extra_relu_removed",    True)
+#             mlflow.log_param("double_norm_removed",   True)
+#             mlflow.log_param("empty_slice_filter",    "var<50")
+#             mlflow.log_param("slices_per_subject",    11)
+#             mlflow.log_param("slice_plane",           "mid_sagittal")
+#             mlflow.log_param("device",                str(self.device))
+#             mlflow.log_param("train_subjects",        len(train_df))
+#             mlflow.log_param("test_subjects",         len(test_df))
+#             mlflow.log_param(
+#                 "train_class_dist",
+#                 train_df["label"].value_counts().to_dict()
+#             )
+
+#             mlflow.log_artifact(str(train_path))
+#             mlflow.log_artifact(str(test_path))
+
+#             print(f"\nDenseNet Feature Extraction Completed ✅")
+#             print(f"Feature dim   : {feature_dim}")
+#             print(f"Train subjects: {len(train_df)}")
+#             print(f"Test subjects : {len(test_df)}")

@@ -17,7 +17,7 @@ data_preparation:
 preprocessing:
   split_dir: data/split
   output_dir: data/preprocessed
-  image_size: 256
+  image_size: 224
 
 augmentation:
   input_dir: data/preprocessed/
