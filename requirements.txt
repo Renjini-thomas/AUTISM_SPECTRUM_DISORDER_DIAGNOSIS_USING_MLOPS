@@ -13,3 +13,4 @@ dvc
 dagshub
 pyyaml
 joblib
+optuna

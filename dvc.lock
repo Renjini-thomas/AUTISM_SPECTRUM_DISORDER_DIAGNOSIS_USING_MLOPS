@@ -96,8 +96,8 @@ stages:
       nfiles: 8360
     - path: src/components/feature_extraction.py
       hash: md5
-      md5: 5aabae152729de35537a914a8a9aec9a
-      size: 23668
+      md5: 3664dd26ad110e4aa19e7afa097f737b
+      size: 23715
     - path: src/pipeline/stage_05_feature_extraction.py
       hash: md5
       md5: b8225832cd1946d62f94d454e95c3139
@@ -153,18 +153,12 @@ stages:
       size: 1150
     - path: src/components/model_training.py
       hash: md5
-      md5: 8e88c6bfddb6583ac14a1694bb669a35
-      size: 14682
+      md5: 88c70f35be84787235e7097070106dd0
+      size: 13346
     - path: src/pipeline/stage_07_model_training.py
       hash: md5
       md5: b688e8c554ab13f9b753e6cd18c1bd23
       size: 255
-    outs:
-    - path: artifacts/models
-      hash: md5
-      md5: 9bdd501020ae6972b0a7a06051507587.dir
-      size: 71990996
-      nfiles: 13
   model_evaluation:
     cmd: cmd /c "set PYTHONPATH=. && python -m 
       src.pipeline.stage_08_model_evaluation"
@@ -174,19 +168,14 @@ stages:
       md5: 05426c287efb16dbaf48500006c744f4.dir
       size: 37919181
       nfiles: 2
-    - path: artifacts/models
-      hash: md5
-      md5: 9bdd501020ae6972b0a7a06051507587.dir
-      size: 71990996
-      nfiles: 13
     - path: config/config.yaml
       hash: md5
       md5: 66774d1a8ab13b8eb5007e73d23dd219
       size: 1150
     - path: src/components/model_evaluation.py
       hash: md5
-      md5: 40886f1f23ce23cad5bffa7a7a2dedd7
-      size: 13550
+      md5: f186f3814e835076178ce82b0de7c107
+      size: 20975
     - path: src/pipeline/stage_08_model_evaluation.py
       hash: md5
       md5: c10f1ec34acd3df9a6380029467a3748
@@ -194,6 +183,6 @@ stages:
     outs:
     - path: artifacts/evaluation
       hash: md5
-      md5: e2e0f566998ce004b1321d3b5575cca3.dir
-      size: 37214
+      md5: 5e3547c19896c8806a1da75465e7540c.dir
+      size: 37433
       nfiles: 3

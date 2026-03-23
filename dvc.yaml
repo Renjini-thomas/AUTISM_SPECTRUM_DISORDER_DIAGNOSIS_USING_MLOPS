@@ -117,17 +117,6 @@ stages:
     outs:
       - artifacts/features
 
-  # feature_selection:
-  #   cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_05b_feature_selection"
-  #   deps:
-  #     - config/config.yaml
-  #     - artifacts/features/train_features.csv
-  #     - artifacts/features/test_features.csv
-  #     - src/components/feature_selection.py
-  #     - src/pipeline/stage_05b_feature_selection.py
-  #   outs:
-  #     - artifacts/selected_features
-
   model_training:
     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_07_model_training"
     deps:
@@ -135,14 +124,11 @@ stages:
       - artifacts/features
       - src/components/model_training.py
       - src/pipeline/stage_07_model_training.py
-    outs:
-      - artifacts/models
-
+    
   model_evaluation:
     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_08_model_evaluation"
     deps:
       - config/config.yaml
-      - artifacts/models
       - artifacts/features
       - src/components/model_evaluation.py
       - src/pipeline/stage_08_model_evaluation.py

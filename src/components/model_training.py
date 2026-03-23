@@ -185,24 +185,29 @@ from sklearn.svm import SVC
 from sklearn.ensemble import GradientBoostingClassifier
 import numpy as np
 import pandas as pd
-import joblib
 import mlflow
 import mlflow.sklearn
 import os
+import hashlib
+import joblib
+from sklearn.linear_model import LogisticRegression
 
 from pathlib import Path
 from dotenv import load_dotenv
 
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler,RobustScaler,MinMaxScaler,PowerTransformer
 from sklearn.decomposition import PCA
 
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
-from sklearn.metrics import make_scorer, recall_score, f1_score,balanced_accuracy_score, roc_auc_score, accuracy_score
+from sklearn.metrics import make_scorer, recall_score, f1_score, balanced_accuracy_score,auc, accuracy_score, precision_score
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
+import tempfile
+import optuna
+from optuna.integration import OptunaSearchCV
 
 
 class ModelTrainer:
@@ -218,19 +223,26 @@ class ModelTrainer:
             "https://dagshub.com/renjini2539thomas/AUTISM_SPECTRUM_DISORDER_DIAGNOSIS_USING_MLOPS.mlflow"
         )
 
-        mlflow.set_experiment("ASD_CLASSICAL_ML")
+        mlflow.set_experiment("ASD_MLOPS_PIPELINE")
 
         self.feature_dir = Path("artifacts/features")
-        self.model_dir = Path("artifacts/models")
-        self.model_dir.mkdir(parents=True, exist_ok=True)
+        # self.model_dir = Path("artifacts/models")
+        # self.model_dir.mkdir(parents=True, exist_ok=True)
 
-    # ---------------- LOAD RAW FEATURES ----------------
+    # ---------------- DATA HASH ----------------
+
+    def get_file_hash(self, path):
+
+        with open(path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()
+
+    # ---------------- LOAD DATA ----------------
 
     def load_data(self):
 
         train_df = pd.read_csv(self.feature_dir / "train_features.csv")
 
-        X_train = train_df.drop("label", axis=1).values
+        X_train = train_df.drop("label", axis=1)
         y_train = train_df["label"].values
 
         return X_train, y_train
@@ -250,15 +262,18 @@ class ModelTrainer:
                         class_weight="balanced"
                     ))
                 ]),
-                {
-                    "pca__n_components": [0.90, 0.95,0.99],
-                    "model__C": [0.01, 0.1, 1, 10]
+                {   
+                    "scaler": [StandardScaler(), RobustScaler(), MinMaxScaler(), PowerTransformer()],
+                    "pca__n_components": [0.90,0.95, 0.99],
+                    "model__C": [0.01, 0.1, 1, 10],
+                    "model__penalty": ["l1", "l2"],
+                    "model__solver": ["liblinear", "saga"]
                 }
             ),
 
             "random_forest": (
                 Pipeline([
-                    ("scaler", StandardScaler()),
+                    
                     ("pca", PCA()),
                     ("model", RandomForestClassifier(
                         class_weight="balanced",
@@ -266,25 +281,9 @@ class ModelTrainer:
                     ))
                 ]),
                 {
-                    "pca__n_components": [0.90, 0.95,0.99],
+                    "pca__n_components": [0.90, 0.95, 0.99],
                     "model__n_estimators": [200, 400],
                     "model__max_depth": [5, 10, 15]
-                }
-            ),
-
-            "decision_tree": (
-                Pipeline([
-                    ("scaler", StandardScaler()),
-                    ("pca", PCA()),
-                    ("model", DecisionTreeClassifier(
-                        class_weight="balanced",
-                        random_state=42
-                    ))
-                ]),
-                {
-                    "pca__n_components": [0.90, 0.95,0.99],
-                    "model__max_depth": [5, 10, 15, None],
-                    "model__min_samples_split": [2, 5, 10]
                 }
             ),
 
@@ -298,29 +297,11 @@ class ModelTrainer:
                     ))
                 ]),
                 {
-                    "pca__n_components": [0.90, 0.95,0.99],
-                    # "model__C": [0.1, 1, 10],
-                    # "model__kernel": ["linear", "rbf"],
-                    # "model__gamma": ["scale", "auto"]
+                    "scaler": [StandardScaler(), RobustScaler(), MinMaxScaler(), PowerTransformer()],
+                    "pca__n_components": [0.90, 0.95, 0.99],
                     "model__kernel": ["rbf"],
                     "model__C": [0.5, 1, 5],
                     "model__gamma": ["scale"]
-                }
-            ),
-
-            "gradient_boosting": (
-                Pipeline([
-                    ("scaler", StandardScaler()),
-                    ("pca", PCA()),
-                    ("model", GradientBoostingClassifier(
-                        random_state=42
-                    ))
-                ]),
-                {
-                    "pca__n_components": [0.90, 0.95,0.99],
-                    "model__n_estimators": [100, 200],
-                    "model__learning_rate": [0.05, 0.1],
-                    "model__max_depth": [3, 5]
                 }
             ),
 
@@ -331,7 +312,8 @@ class ModelTrainer:
                     ("model", KNeighborsClassifier())
                 ]),
                 {
-                    "pca__n_components": [0.90, 0.95,0.99],
+                    "scaler": [StandardScaler(), RobustScaler(), MinMaxScaler(), PowerTransformer()],
+                    "pca__n_components": [0.90, 0.95, 0.99],
                     "model__n_neighbors": [5, 7, 9]
                 }
             )
@@ -343,12 +325,9 @@ class ModelTrainer:
 
         X_train, y_train = self.load_data()
 
-        best_model = None
-        best_name = ""
-
-        best_recall = 0
-        best_auc = 0
-        best_f1 = 0
+        data_hash = self.get_file_hash(
+            self.feature_dir / "train_features.csv"
+        )
 
         cv = StratifiedKFold(
             n_splits=5,
@@ -358,87 +337,57 @@ class ModelTrainer:
 
         scoring = {
             "recall": make_scorer(recall_score, pos_label="autism"),
-            "auc": "roc_auc",
             "f1": make_scorer(f1_score, pos_label="autism"),
-            "accuracy": "accuracy",
-            # "bal_acc": "balanced_accuracy"
+            "bal_acc": make_scorer(balanced_accuracy_score),
+            "auc": "roc_auc",
+            "accuracy": "accuracy"
         }
 
         for name, (pipe, params) in self.get_models().items():
 
             with mlflow.start_run(run_name=name):
 
-                print("Training:", name)
+                print(f"Training {name}")
 
                 grid = GridSearchCV(
                     pipe,
                     params,
                     cv=cv,
                     scoring=scoring,
-                    refit="f1",
-                    n_jobs=-1,
-                    verbose=1
+                    refit="bal_acc",
+                    n_jobs=-1
                 )
 
                 grid.fit(X_train, y_train)
-                import pandas as pd
-
-                results_df = pd.DataFrame(grid.cv_results_)
-
-                results_path = self.model_dir / f"{name}_gridsearch_results.csv"
-
-                results_df.to_csv(results_path, index=False)
-
-                mlflow.log_artifact(str(results_path))
-                joblib.dump(grid, self.model_dir / f"{name}_grid_object.joblib")
 
                 idx = grid.best_index_
 
                 cv_recall = grid.cv_results_["mean_test_recall"][idx]
-                cv_auc = grid.cv_results_["mean_test_auc"][idx]
                 cv_f1 = grid.cv_results_["mean_test_f1"][idx]
+                cv_bal_acc = grid.cv_results_["mean_test_bal_acc"][idx]
+                cv_auc = grid.cv_results_["mean_test_auc"][idx]
                 cv_acc = grid.cv_results_["mean_test_accuracy"][idx]
-                # cv_bal_acc = grid.cv_results_["mean_test_bal_acc"][idx]
 
+                mlflow.log_param("candidate_model", name)
+                mlflow.log_param("data_version", data_hash)
                 mlflow.log_params(grid.best_params_)
+
                 mlflow.log_metric("cv_recall", cv_recall)
-                mlflow.log_metric("cv_auc", cv_auc)
                 mlflow.log_metric("cv_f1", cv_f1)
+                mlflow.log_metric("cv_balanced_accuracy", cv_bal_acc)
+                mlflow.log_metric("cv_auc", cv_auc)
                 mlflow.log_metric("cv_accuracy", cv_acc)
-                # mlflow.log_metric("cv_balanced_accuracy", cv_bal_acc)
 
-                print(f"{name} → Recall:{cv_recall:.3f} AUC:{cv_auc:.3f}")
+                # # ⭐ MOST IMPORTANT → log candidate model
+                # mlflow.sklearn.log_model(
+                #     sk_model=grid.best_estimator_,
+                #     name="model"
+                # )
+                with tempfile.TemporaryDirectory() as tmp_dir:
 
-                if cv_recall > best_recall:
+                    model_path = os.path.join(tmp_dir, "model.joblib")
+                    joblib.dump(grid.best_estimator_, model_path)
 
-                    best_model = grid.best_estimator_
-                    best_name = name
-                    best_recall = cv_recall
-                    best_auc = cv_auc
-                    best_f1 = cv_f1
+                    mlflow.log_artifact(model_path, artifact_path="model")
 
-                elif cv_recall == best_recall:
-
-                    if cv_auc > best_auc:
-
-                        best_model = grid.best_estimator_
-                        best_name = name
-                        best_auc = cv_auc
-                        best_f1 = cv_f1
-
-                    elif cv_auc == best_auc:
-
-                        if cv_f1 > best_f1:
-
-                            best_model = grid.best_estimator_
-                            best_name = name
-                            best_f1 = cv_f1
-
-        joblib.dump(best_model, self.model_dir / "best_model.joblib")
-
-        print("⭐ BEST MODEL:", best_name)
-        print("CV Recall:", best_recall)
-        print("CV AUC:", best_auc)
-        print("CV F1:", best_f1)
-
-        print("Model Saved ✅")
+                print(f"{name} CV Bal Acc: {cv_bal_acc:.3f} Recall: {cv_recall:.3f} F1: {cv_f1:.3f} AUC: {cv_auc:.3f} Accuracy: {cv_acc:.3f}")
