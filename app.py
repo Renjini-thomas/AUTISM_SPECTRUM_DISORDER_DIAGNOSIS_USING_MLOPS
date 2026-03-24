@@ -6,7 +6,13 @@ import numpy as np
 
 from src.prediction.ASD_prediction import ASD_Prediction
 
-pipeline = ASD_Prediction()
+pipeline = None
+
+def get_pipeline():
+    global pipeline
+    if pipeline is None:
+        pipeline = ASD_Prediction()
+    return pipeline
 
 
 def predict_asd(file):
@@ -19,6 +25,7 @@ def predict_asd(file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
 
         shutil.copyfile(file.name, tmp.name)
+        pipeline = get_pipeline()
 
         pred, prob, slices = pipeline.predict(tmp.name)
 
