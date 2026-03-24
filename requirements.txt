@@ -14,3 +14,6 @@ dagshub
 pyyaml
 joblib
 optuna
+gradio
+torch
+torchvision
