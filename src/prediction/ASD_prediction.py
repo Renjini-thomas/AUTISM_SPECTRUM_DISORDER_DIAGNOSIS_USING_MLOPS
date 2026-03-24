@@ -19,8 +19,13 @@ class ASD_Prediction:
 
     def __init__(self):
         load_dotenv()
-        os.environ["MLFLOW_TRACKING_USERNAME"] = os.getenv("DAGSHUB_USERNAME")
-        os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("DAGSHUB_TOKEN")
+
+        username = os.getenv("DAGSHUB_USERNAME")
+        token = os.getenv("DAGSHUB_TOKEN")
+
+        if username and token:
+            os.environ["MLFLOW_TRACKING_USERNAME"] = username
+            os.environ["MLFLOW_TRACKING_PASSWORD"] = token
 
         mlflow.set_tracking_uri("https://dagshub.com/renjini2539thomas/AUTISM_SPECTRUM_DISORDER_DIAGNOSIS_USING_MLOPS.mlflow")
         # ===== DEVICE =====
