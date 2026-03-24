@@ -259,14 +259,15 @@ class ModelTrainer:
                     ("pca", PCA()),
                     ("model", LogisticRegression(
                         max_iter=3000,
-                        class_weight="balanced"
+                        class_weight="balanced",
+                        tol=1e-3
                     ))
                 ]),
                 {   
                     "scaler": [StandardScaler(), RobustScaler(), MinMaxScaler(), PowerTransformer()],
-                    "pca__n_components": [0.90,0.95, 0.99],
+                    "pca__n_components": [0.85, 0.90, 0.95],
                     "model__C": [0.01, 0.1, 1, 10],
-                    "model__penalty": ["l1", "l2"],
+                    "model__penalty": ["l2"],
                     "model__solver": ["liblinear", "saga"]
                 }
             ),
@@ -281,7 +282,7 @@ class ModelTrainer:
                     ))
                 ]),
                 {
-                    "pca__n_components": [0.90, 0.95, 0.99],
+                    "pca__n_components": [0.85, 0.90, 0.95],
                     "model__n_estimators": [200, 400],
                     "model__max_depth": [5, 10, 15]
                 }
@@ -298,7 +299,7 @@ class ModelTrainer:
                 ]),
                 {
                     "scaler": [StandardScaler(), RobustScaler(), MinMaxScaler(), PowerTransformer()],
-                    "pca__n_components": [0.90, 0.95, 0.99],
+                    "pca__n_components": [0.85, 0.90, 0.95],
                     "model__kernel": ["rbf"],
                     "model__C": [0.5, 1, 5],
                     "model__gamma": ["scale"]
@@ -313,7 +314,7 @@ class ModelTrainer:
                 ]),
                 {
                     "scaler": [StandardScaler(), RobustScaler(), MinMaxScaler(), PowerTransformer()],
-                    "pca__n_components": [0.90, 0.95, 0.99],
+                    "pca__n_components": [0.85, 0.90, 0.95],
                     "model__n_neighbors": [5, 7, 9]
                 }
             )

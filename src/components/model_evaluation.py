@@ -506,10 +506,20 @@ class ModelEvaluation:
 
         exp = client.get_experiment_by_name("ASD_MLOPS_PIPELINE")
 
+        # ⭐ compute current data hash
+        import hashlib
+        path = self.feature_dir / "train_features.csv"
+        with open(path, "rb") as f:
+            data_hash = hashlib.md5(f.read()).hexdigest()
+
         runs = client.search_runs(
             experiment_ids=[exp.experiment_id],
+            filter_string=f"params.data_version = '{data_hash}'",
             order_by=["metrics.cv_balanced_accuracy DESC"]
         )
+
+        if len(runs) == 0:
+            raise Exception("No runs found for current feature version")
 
         best_run = runs[0]
 

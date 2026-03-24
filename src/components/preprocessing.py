@@ -44,7 +44,7 @@ class Preprocessing:
         mid = volume.shape[0] // 2
         # 11 slices
         offsets = list(range(-5,6)) if multi_slice else [0]
-
+        # offsets = list(range(-3,4)) if multi_slice else [0]
         # 9 slices
         # offsets = list(range(-4,5)) if multi_slice else [0]
 
