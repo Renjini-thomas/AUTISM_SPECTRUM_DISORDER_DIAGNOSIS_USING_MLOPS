@@ -575,7 +575,7 @@ class ModelEvaluation:
                 (y_test == "autism").astype(int),
                 y_prob
             )
-            mlflow.log_param("model_name", model.__class__.__name__)
+            mlflow.log_param("model_name", model.named_steps["model"].__class__.__name__)
             mlflow.log_param("model_params", model.get_params())
             mlflow.log_param("pca_n_components", model.named_steps["pca"].n_components)
             mlflow.log_param("scaler_used", "StandardScaler")
