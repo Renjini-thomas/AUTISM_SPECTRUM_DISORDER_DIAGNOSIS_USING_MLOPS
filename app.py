@@ -38,7 +38,7 @@ def predict_asd(file):
     return pred, autism_prob, gallery
 
 
-with gr.Blocks(theme=gr.themes.Soft()) as demo:
+with gr.Blocks() as demo:
 
     gr.Markdown(
         """
@@ -76,5 +76,5 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
         outputs=[pred_box, prob_box, slice_gallery]
     )
 
-
-demo.launch()
+if __name__ == "__main__":
+    demo.launch(theme=gr.themes.Soft())
