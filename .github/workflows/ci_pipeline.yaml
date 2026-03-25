@@ -22,6 +22,11 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt
+          
+      - name: Load DagsHub Secrets
+        run: |
+          echo "DAGSHUB_USERNAME=${{ secrets.DAGSHUB_USERNAME }}" >> $GITHUB_ENV
+          echo "DAGSHUB_TOKEN=${{ secrets.DAGSHUB_TOKEN }}" >> $GITHUB_ENV
 
       - name: Test Prediction Pipeline Import
         run: |
