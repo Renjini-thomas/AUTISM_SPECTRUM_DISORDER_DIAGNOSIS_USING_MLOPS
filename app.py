@@ -1,10 +1,9 @@
-import gradio as gr
-import tempfile
-import shutil
 import os
-import numpy as np
-
+import tempfile
+from flask import Flask, request, jsonify, render_template
 from src.prediction.ASD_prediction import ASD_Prediction
+
+app = Flask(__name__)
 
 pipeline = None
 
@@ -15,66 +14,48 @@ def get_pipeline():
     return pipeline
 
 
-def predict_asd(file):
-
-    if file is None:
-        return "Upload MRI", None, None
-
-    ext = os.path.splitext(file.name)[1]
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-
-        shutil.copyfile(file.name, tmp.name)
-        pipeline = get_pipeline()
-
-        pred, prob, slices = pipeline.predict(tmp.name)
-
-    autism_prob = float(
-        prob[list(pipeline.model.classes_).index("autism")]
-    )
-
-    gallery = [np.uint8(s) for s in slices]
-
-    return pred, autism_prob, gallery
+@app.route("/")
+def index():
+    return render_template("index.html")
 
 
-with gr.Blocks() as demo:
+@app.route("/predict", methods=["POST"])
+def predict():
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
 
-    gr.Markdown(
-        """
-        # 🧠 Autism Spectrum Disorder MRI Prediction System  
-        Upload a structural MRI scan to predict ASD risk using ML pipeline
-        """
-    )
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "Empty filename"}), 400
 
-    with gr.Row():
+    fname = file.filename
+    suffix = ".nii.gz" if fname.endswith(".nii.gz") else os.path.splitext(fname)[1]
 
-        with gr.Column(scale=1):
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    try:
+        os.close(fd)
+        file.save(tmp_path)
 
-            file_input = gr.File(
-                label="📂 Upload MRI File",
-                file_types=[".mgz", ".nii", ".nii.gz"]
-            )
+        pl = get_pipeline()
+        pred, prob, _ = pl.predict(tmp_path)
 
-            predict_btn = gr.Button("🚀 Run Prediction")
+        autism_prob = float(prob[list(pl.model.classes_).index("autism")])
+        label = str(pred).lower()
 
-        with gr.Column(scale=1):
+        return jsonify({
+            "label":       "Autistic Sample" if label == "autism" else "Non-Autistic Sample",
+            "prediction":  label,
+            "probability": round(autism_prob, 8),
+            "percent":     int(autism_prob * 100),
+        })
 
-            pred_box = gr.Textbox(label="🧾 Prediction")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-            prob_box = gr.Number(label="📊 Autism Probability")
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
-    slice_gallery = gr.Gallery(
-        label="🧩 Extracted Sagittal Brain Slices",
-        columns=5,
-        height=300
-    )
-
-    predict_btn.click(
-        fn=predict_asd,
-        inputs=file_input,
-        outputs=[pred_box, prob_box, slice_gallery]
-    )
 
 if __name__ == "__main__":
-    demo.launch(theme=gr.themes.Soft())
+    app.run(debug=True, port=7860)

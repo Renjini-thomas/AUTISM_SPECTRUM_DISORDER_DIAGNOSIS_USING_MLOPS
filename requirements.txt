@@ -17,3 +17,5 @@ optuna
 gradio
 torch
 torchvision
+flask
+python-dotenv

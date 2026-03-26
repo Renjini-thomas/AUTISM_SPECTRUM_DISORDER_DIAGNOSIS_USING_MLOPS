@@ -22,7 +22,7 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt
-          
+
       - name: Load DagsHub Secrets
         run: |
           echo "DAGSHUB_USERNAME=${{ secrets.DAGSHUB_USERNAME }}" >> $GITHUB_ENV
@@ -32,9 +32,15 @@ jobs:
         run: |
           python -c "from src.prediction.ASD_prediction import ASD_Prediction"
 
-      - name: Test Gradio App Import
+      # ✅ Changed: was "Test Gradio App Import"
+      - name: Test Flask App Import
         run: |
-          python -c "import app"
+          python -c "import app; assert app.app is not None"
+
+      # ✅ New: ensures the HTML template is present before Docker build
+      - name: Verify Template Exists
+        run: |
+          test -f templates/index.html || (echo "templates/index.html missing!" && exit 1)
 
       - name: Build Docker Image
         run: |

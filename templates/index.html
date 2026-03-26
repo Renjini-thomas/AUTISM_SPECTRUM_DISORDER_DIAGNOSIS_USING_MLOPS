@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>NeuroAI — ASD Detector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap"/>
+<style>
+/* ═══════════════════════════════════════
+   TOKENS
+═══════════════════════════════════════ */
+:root {
+  --bg:         #020b14;
+  --surface:    #04111f;
+  --surface2:   #071a2e;
+  --border:     rgba(0,180,255,0.12);
+  --border-hi:  rgba(0,180,255,0.45);
+  --cyan:       #00d4ff;
+  --teal:       #00f5c4;
+  --red:        #ff4d6d;
+  --orange:     #ff9a3c;
+  --text:       #cde8f7;
+  --muted:      #4a7fa0;
+  --mono:       'DM Mono', monospace;
+  --sans:       'Syne', sans-serif;
+}
+
+/* ═══════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  overflow-x: hidden;
+}
+
+/* animated grid background */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0;
+  background-image:
+    linear-gradient(rgba(0,180,255,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,180,255,0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  animation: gridShift 40s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes gridShift {
+  from { background-position: 0 0; }
+  to   { background-position: 48px 48px; }
+}
+
+/* radial glow top-left */
+body::after {
+  content: '';
+  position: fixed;
+  top: -200px; left: -200px;
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(0,212,255,0.06) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ═══════════════════════════════════════
+   LAYOUT
+═══════════════════════════════════════ */
+.page {
+  position: relative; z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+/* ═══════════════════════════════════════
+   HEADER
+═══════════════════════════════════════ */
+header {
+  text-align: center;
+  animation: fadeDown 0.7s ease both;
+}
+
+.logo-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.logo-icon {
+  width: 42px; height: 42px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--cyan), var(--teal));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+}
+
+.logo-text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+h1 {
+  font-size: clamp(36px, 6vw, 62px);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -2px;
+  background: linear-gradient(135deg, #e8f7ff 20%, var(--cyan) 60%, var(--teal));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 14px;
+}
+
+.tagline {
+  color: var(--muted);
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  font-family: var(--mono);
+  font-weight: 300;
+}
+
+/* ═══════════════════════════════════════
+   MAIN PANEL
+═══════════════════════════════════════ */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 0 60px rgba(0,180,255,0.04), 0 24px 60px rgba(0,0,0,0.5);
+  animation: fadeUp 0.8s 0.15s ease both;
+}
+
+.panel-header {
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,180,255,0.03);
+}
+
+.dot { width: 10px; height: 10px; border-radius: 50%; }
+.dot-red   { background: #ff5f56; }
+.dot-amber { background: #ffbd2e; }
+.dot-green { background: #27c93f; }
+
+.panel-title {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+
+.panel-body {
+  padding: 40px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+}
+
+@media (max-width: 680px) {
+  .panel-body { grid-template-columns: 1fr; padding: 24px; }
+}
+
+/* ═══════════════════════════════════════
+   UPLOAD ZONE
+═══════════════════════════════════════ */
+.upload-col { display: flex; flex-direction: column; gap: 20px; }
+
+.drop-zone {
+  position: relative;
+  border: 2px dashed rgba(0,180,255,0.25);
+  border-radius: 16px;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.25s, background 0.25s;
+  background: rgba(0,20,40,0.4);
+  flex: 1;
+}
+
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--cyan);
+  background: rgba(0,212,255,0.04);
+}
+
+.drop-zone input[type="file"] {
+  position: absolute; inset: 0;
+  opacity: 0; cursor: pointer; width: 100%; height: 100%;
+}
+
+.drop-icon {
+  font-size: 40px;
+  margin-bottom: 14px;
+  display: block;
+  filter: drop-shadow(0 0 12px rgba(0,212,255,0.3));
+}
+
+.drop-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.drop-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+
+.file-badge {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0,212,255,0.07);
+  border: 1px solid rgba(0,212,255,0.2);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--cyan);
+  animation: fadeIn 0.3s ease;
+}
+
+.file-badge.visible { display: flex; }
+
+.file-icon { font-size: 18px; }
+
+.file-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-size { color: var(--muted); font-size: 11px; }
+
+.run-btn {
+  width: 100%;
+  padding: 17px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--cyan) 0%, var(--teal) 100%);
+  color: #011824;
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
+  box-shadow: 0 6px 28px rgba(0,212,255,0.25);
+  position: relative;
+  overflow: hidden;
+}
+
+.run-btn::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, transparent, rgba(255,255,255,0.1), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.5s ease;
+}
+
+.run-btn:hover::after { transform: translateX(100%); }
+.run-btn:hover { opacity: 0.93; transform: translateY(-2px); box-shadow: 0 10px 36px rgba(0,212,255,0.35); }
+.run-btn:active { transform: translateY(0); }
+.run-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+/* spinner inside button */
+.btn-inner { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.spinner {
+  display: none;
+  width: 16px; height: 16px;
+  border: 2px solid rgba(0,0,0,0.2);
+  border-top-color: #011824;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.loading .spinner { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══════════════════════════════════════
+   RESULTS COLUMN
+═══════════════════════════════════════ */
+.results-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* empty state */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  opacity: 0.35;
+  padding: 30px 0;
+}
+
+.empty-icon { font-size: 48px; }
+
+.empty-text {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* result cards */
+.result-cards {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+  animation: fadeIn 0.5s ease both;
+}
+
+.result-cards.visible { display: flex; }
+
+.card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px 22px;
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--cyan);
+  border-radius: 2px 0 0 2px;
+}
+
+.card.danger::before { background: var(--red); }
+.card.safe::before   { background: var(--teal); }
+
+.card-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.card-value {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 500;
+  color: #e8f7ff;
+  letter-spacing: 1px;
+}
+
+.card-value.prob {
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--cyan);
+  text-shadow: 0 0 20px rgba(0,212,255,0.4);
+  letter-spacing: 2px;
+}
+
+/* ═══════════════════════════════════════
+   RISK METER SECTION
+═══════════════════════════════════════ */
+.risk-section {
+  display: none;
+  padding: 32px 40px 40px;
+  border-top: 1px solid var(--border);
+  animation: fadeIn 0.5s ease both;
+}
+
+.risk-section.visible { display: block; }
+
+.risk-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 20px;
+}
+
+.risk-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.risk-pct {
+  font-family: var(--mono);
+  font-size: 42px;
+  font-weight: 500;
+  letter-spacing: -1px;
+  line-height: 1;
+  color: #e8f7ff;
+}
+
+.risk-pct span {
+  font-size: 20px;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+/* track */
+.track {
+  height: 10px;
+  background: rgba(0,180,255,0.06);
+  border-radius: 20px;
+  overflow: visible;
+  position: relative;
+  border: 1px solid rgba(0,180,255,0.1);
+  margin-bottom: 28px;
+}
+
+.track-fill {
+  height: 100%;
+  border-radius: 20px;
+  width: 0%;
+  transition: width 1.4s cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+}
+
+.track-fill::after {
+  content: '';
+  position: absolute;
+  right: -1px; top: 50%;
+  transform: translateY(-50%);
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 12px currentColor;
+  border: 2px solid var(--bg);
+}
+
+/* threshold markers */
+.markers {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.marker {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(74,127,160,0.5);
+  letter-spacing: 0.5px;
+}
+
+/* badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 100px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.badge-dot { width: 7px; height: 7px; border-radius: 50%; animation: pulse 1.5s ease infinite; }
+
+.badge.danger {
+  background: rgba(255,77,109,0.1);
+  border: 1px solid rgba(255,77,109,0.3);
+  color: var(--red);
+}
+.badge.danger .badge-dot { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+.badge.safe {
+  background: rgba(0,245,196,0.08);
+  border: 1px solid rgba(0,245,196,0.25);
+  color: var(--teal);
+}
+.badge.safe .badge-dot { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ═══════════════════════════════════════
+   DISCLAIMER
+═══════════════════════════════════════ */
+.disclaimer {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgba(74,127,160,0.5);
+  letter-spacing: 0.5px;
+  animation: fadeUp 1s 0.4s ease both;
+}
+
+/* ═══════════════════════════════════════
+   ERROR TOAST
+═══════════════════════════════════════ */
+.toast {
+  position: fixed;
+  bottom: 32px; right: 32px;
+  background: rgba(255,77,109,0.12);
+  border: 1px solid rgba(255,77,109,0.35);
+  color: #ff8fa3;
+  padding: 14px 20px;
+  border-radius: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  max-width: 360px;
+  display: none;
+  animation: slideIn 0.3s ease;
+  z-index: 999;
+}
+
+.toast.visible { display: block; }
+
+@keyframes slideIn {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ═══════════════════════════════════════
+   ANIMATIONS
+═══════════════════════════════════════ */
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* scan line overlay on results */
+.scan-line {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,180,255,0.015) 2px,
+    rgba(0,180,255,0.015) 4px
+  );
+  pointer-events: none;
+  border-radius: inherit;
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo-mark">
+      <div class="logo-icon">🧠</div>
+      <div class="logo-text">NeuroAI Systems</div>
+    </div>
+    <h1>ASD Detector</h1>
+    <p class="tagline">// Structural MRI · Autism Spectrum Disorder · Risk Estimation</p>
+  </header>
+
+  <!-- MAIN PANEL -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-amber"></div>
+      <div class="dot dot-green"></div>
+      <span class="panel-title">neuro-analysis-terminal v2.0</span>
+    </div>
+
+    <div class="panel-body">
+
+      <!-- LEFT: UPLOAD -->
+      <div class="upload-col">
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="fileInput" accept=".mgz,.nii,.nii.gz"/>
+          <span class="drop-icon">📂</span>
+          <div class="drop-title">Drop MRI scan here</div>
+          <div class="drop-sub">.mgz · .nii · .nii.gz &nbsp;|&nbsp; Click to browse</div>
+        </div>
+
+        <div class="file-badge" id="fileBadge">
+          <span class="file-icon">🗂</span>
+          <span class="file-name" id="fileName">—</span>
+          <span class="file-size" id="fileSize"></span>
+        </div>
+
+        <button class="run-btn" id="runBtn" disabled>
+          <div class="btn-inner">
+            <div class="spinner" id="spinner"></div>
+            <span id="btnLabel">Run Neuro Analysis</span>
+          </div>
+        </button>
+      </div>
+
+      <!-- RIGHT: RESULTS -->
+      <div class="results-col">
+
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">⬡</div>
+          <div class="empty-text">Awaiting scan input</div>
+        </div>
+
+        <div class="result-cards" id="resultCards">
+          <div class="card" id="classCard">
+            <div class="scan-line"></div>
+            <div class="card-label">Clinical Classification</div>
+            <div class="card-value" id="classValue">—</div>
+          </div>
+          <div class="card" id="probCard">
+            <div class="scan-line"></div>
+            <div class="card-label">Autism Probability Score</div>
+            <div class="card-value prob" id="probValue">—</div>
+          </div>
+          <div id="badgeWrap"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- RISK SECTION -->
+    <div class="risk-section" id="riskSection">
+      <div class="risk-header">
+        <span class="risk-title">ASD Risk Score</span>
+        <div class="risk-pct"><span id="pctNum">0</span><span>%</span></div>
+      </div>
+      <div class="track">
+        <div class="track-fill" id="trackFill"></div>
+      </div>
+      <div class="markers">
+        <span class="marker">0</span>
+        <span class="marker">25</span>
+        <span class="marker">50</span>
+        <span class="marker">75</span>
+        <span class="marker">100</span>
+      </div>
+    </div>
+  </div>
+
+  <p class="disclaimer">⚠ Research Use Only — Not intended for standalone clinical diagnosis</p>
+</div>
+
+<!-- ERROR TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+const fileInput  = document.getElementById('fileInput');
+const dropZone   = document.getElementById('dropZone');
+const fileBadge  = document.getElementById('fileBadge');
+const fileName   = document.getElementById('fileName');
+const fileSize   = document.getElementById('fileSize');
+const runBtn     = document.getElementById('runBtn');
+const btnLabel   = document.getElementById('btnLabel');
+const spinner    = document.getElementById('spinner');
+const emptyState = document.getElementById('emptyState');
+const resultCards= document.getElementById('resultCards');
+const classCard  = document.getElementById('classCard');
+const classValue = document.getElementById('classValue');
+const probValue  = document.getElementById('probValue');
+const probCard   = document.getElementById('probCard');
+const badgeWrap  = document.getElementById('badgeWrap');
+const riskSection= document.getElementById('riskSection');
+const trackFill  = document.getElementById('trackFill');
+const pctNum     = document.getElementById('pctNum');
+const toast      = document.getElementById('toast');
+
+let selectedFile = null;
+
+/* ─── Format bytes ─── */
+function fmtBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(2) + ' MB';
+}
+
+/* ─── Show toast ─── */
+function showToast(msg, dur = 4000) {
+  toast.textContent = '⚠ ' + msg;
+  toast.classList.add('visible');
+  setTimeout(() => toast.classList.remove('visible'), dur);
+}
+
+/* ─── File selected ─── */
+function handleFile(file) {
+  if (!file) return;
+  const name = file.name;
+  const ok = name.endsWith('.mgz') || name.endsWith('.nii') || name.endsWith('.nii.gz');
+  if (!ok) { showToast('Unsupported format. Use .mgz, .nii, or .nii.gz'); return; }
+
+  selectedFile = file;
+  fileName.textContent = name;
+  fileSize.textContent = fmtBytes(file.size);
+  fileBadge.classList.add('visible');
+  runBtn.disabled = false;
+
+  // reset results
+  emptyState.style.display = 'flex';
+  resultCards.classList.remove('visible');
+  riskSection.classList.remove('visible');
+}
+
+fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+/* drag & drop */
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  handleFile(e.dataTransfer.files[0]);
+});
+
+/* ─── Animate counter ─── */
+function animateCount(el, target, dur = 1200) {
+  const start = performance.now();
+  function step(now) {
+    const p = Math.min((now - start) / dur, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(ease * target);
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/* ─── Run analysis ─── */
+runBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+
+  // loading state
+  runBtn.disabled = true;
+  runBtn.classList.add('loading');
+  btnLabel.textContent = 'Analysing...';
+
+  const form = new FormData();
+  form.append('file', selectedFile);
+
+  try {
+    const res = await fetch('/predict', { method: 'POST', body: form });
+    const data = await res.json();
+
+    if (data.error) { showToast(data.error); return; }
+
+    const isAutism = data.prediction === 'autism';
+    const pct      = data.percent;
+    const prob     = data.probability;
+
+    /* classification card */
+    classValue.textContent = data.label;
+    classCard.className = 'card ' + (isAutism ? 'danger' : 'safe');
+
+    /* probability card */
+    probValue.textContent = prob.toFixed(8);
+    probCard.className = 'card ' + (isAutism ? 'danger' : 'safe');
+
+    /* badge */
+    badgeWrap.innerHTML = isAutism
+      ? `<div class="badge danger"><span class="badge-dot"></span>HIGH ASD LIKELIHOOD</div>`
+      : `<div class="badge safe"><span class="badge-dot"></span>LOW ASD LIKELIHOOD</div>`;
+
+    /* show cards */
+    emptyState.style.display = 'none';
+    resultCards.classList.add('visible');
+
+    /* risk bar */
+    riskSection.classList.add('visible');
+    const fill = isAutism
+      ? 'linear-gradient(90deg, #ff4d6d, #ff9a3c)'
+      : 'linear-gradient(90deg, #00c6ff, #00f5c4)';
+    trackFill.style.background = fill;
+
+    // slight delay so transition fires after display
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        trackFill.style.width = pct + '%';
+      });
+    });
+
+    animateCount(pctNum, pct);
+
+  } catch (err) {
+    showToast('Network error — is the server running?');
+  } finally {
+    runBtn.disabled = false;
+    runBtn.classList.remove('loading');
+    btnLabel.textContent = 'Run Neuro Analysis';
+  }
+});
+</script>
+</body>
+</html>
