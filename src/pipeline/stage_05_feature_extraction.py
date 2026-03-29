@@ -1,4 +1,5 @@
 from src.components.feature_extraction import FeatureExtraction
+from logging import logging
 
 class FeatureExtractionPipeline:
 
