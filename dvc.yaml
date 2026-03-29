@@ -75,6 +75,75 @@
 #       - src/components/model_evaluation.py
 #     outs:
 #       - artifacts/evaluation
+# stages:
+
+#   data_ingestion:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_01_data_ingestion"
+#     deps:
+#       - config/config.yaml
+#       - src/components/data_ingestion.py
+#       - src/pipeline/stage_01_data_ingestion.py
+#     outs:
+#       - data/raw
+
+#   data_preparation:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_02_data_preparation"
+#     deps:
+#       - config/config.yaml
+#       - src/components/data_preparation.py
+#       - src/pipeline/stage_02_data_preparation.py
+#       - data/raw
+#     outs:
+#       - data/split
+
+#   preprocessing:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_03_preprocessing"
+#     deps:
+#       - config/config.yaml
+#       - src/components/preprocessing.py
+#       - src/pipeline/stage_03_preprocessing.py
+#       - data/split
+#     outs:
+#       - data/preprocessed
+
+#   feature_extraction:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_05_feature_extraction"
+#     deps:
+#       - config/config.yaml
+#       - src/components/feature_extraction.py
+#       - src/pipeline/stage_05_feature_extraction.py
+#       - data/preprocessed/train
+#       - data/preprocessed/test
+#     outs:
+#       - artifacts/features
+
+#   drift_detection:
+#     cmd: python -m src.pipeline.stage_drift_detection
+#     deps:
+#       - config/config.yaml
+#       - artifacts/features
+#       - src/monitoring/drift_detection.py
+#       - src/pipeline/stage_drift_detection.py
+#     outs:
+#       - artifacts/drift
+
+#   model_training:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_07_model_training"
+#     deps:
+#       - config/config.yaml
+#       - artifacts/features
+#       - src/components/model_training.py
+#       - src/pipeline/stage_07_model_training.py
+    
+#   model_evaluation:
+#     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_08_model_evaluation"
+#     deps:
+#       - config/config.yaml
+#       - artifacts/features
+#       - src/components/model_evaluation.py
+#       - src/pipeline/stage_08_model_evaluation.py
+#     outs:
+#       - artifacts/evaluation
 stages:
 
   data_ingestion:
@@ -115,22 +184,58 @@ stages:
       - data/preprocessed/train
       - data/preprocessed/test
     outs:
-      - artifacts/features
+      - artifacts/features/train_features.csv
+      - artifacts/features/test_features.csv
+      # ⭐ reference_features.csv is intentionally NOT listed here as an out.
+      #
+      # It is written ONCE by feature_extraction.py on the very first run
+      # (when it doesn't exist yet), and thereafter updated ONLY by
+      # model_evaluation.py when a better model is promoted to staging.
+      #
+      # Listing it as an out of feature_extraction would cause DVC to
+      # overwrite it on every run, destroying the frozen baseline.
+      # It is committed to Git/DVC remote manually after promotion.
+
+  drift_detection:
+    cmd: cmd /c "set PYTHONPATH=. && venv\Scripts\python -m src.pipeline.stage_data_drift_detection"
+    deps:
+      - config/config.yaml
+      - src/monitoring/drift_detection.py
+      - src/pipeline/stage_data_drift_detection.py
+      - artifacts/features/train_features.csv      # current incoming data
+      - artifacts/features/reference_features.csv  # frozen best-model baseline
+      # ⭐ reference_features.csv is a dep (not an out) here.
+      # DVC will detect when it changes (after a promotion in model_evaluation)
+      # and re-run drift_detection automatically on the next dvc repro.
+    outs:
+      - artifacts/drift
+      # ⭐ artifacts/drift is the enforced gate.
+      # model_training depends on this output existing,
+      # which forces DVC to run drift_detection before training.
 
   model_training:
     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_07_model_training"
     deps:
       - config/config.yaml
-      - artifacts/features
+      - artifacts/features/train_features.csv
+      - artifacts/drift                            # ⭐ ADDED — gates training on drift check
       - src/components/model_training.py
       - src/pipeline/stage_07_model_training.py
-    
+    # No outs here intentionally — model artifacts are managed by MLflow,
+    # not DVC. Adding them as DVC outs would cause unnecessary re-runs
+    # when the model file changes but features haven't.
+
   model_evaluation:
     cmd: cmd /c "set PYTHONPATH=. && python -m src.pipeline.stage_08_model_evaluation"
     deps:
       - config/config.yaml
-      - artifacts/features
+      - artifacts/features/train_features.csv
+      - artifacts/features/test_features.csv
+      # - artifacts/drift                            # ⭐ ADDED — evaluation also after drift gate
       - src/components/model_evaluation.py
       - src/pipeline/stage_08_model_evaluation.py
     outs:
       - artifacts/evaluation
+      # ⭐ After this stage, model_evaluation.py may update reference_features.csv
+      # (if the new model beats staging). When that happens, commit the updated
+      # reference to your DVC remote so the next pipeline run picks it up.

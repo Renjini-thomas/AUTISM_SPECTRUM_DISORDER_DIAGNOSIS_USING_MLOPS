@@ -96,18 +96,21 @@ stages:
       nfiles: 8360
     - path: src/components/feature_extraction.py
       hash: md5
-      md5: 204633b1ee003a21f42a9d88f563d5fa
-      size: 15327
+      md5: 59724a4fe14e9a51b0f8e1670850c3bc
+      size: 23748
     - path: src/pipeline/stage_05_feature_extraction.py
       hash: md5
       md5: b8225832cd1946d62f94d454e95c3139
       size: 273
     outs:
-    - path: artifacts/features
+    - path: artifacts/features/test_features.csv
       hash: md5
-      md5: 05426c287efb16dbaf48500006c744f4.dir
-      size: 37919181
-      nfiles: 2
+      md5: fd7ade890ec5c245145ea236202e98bd
+      size: 29062114
+    - path: artifacts/features/train_features.csv
+      hash: md5
+      md5: 57a08c0166ad27a4481428970264b44f
+      size: 67674002
   feature_selection:
     cmd: cmd /c "set PYTHONPATH=. && python -m 
       src.pipeline.stage_05b_feature_selection"
@@ -142,19 +145,18 @@ stages:
     cmd: cmd /c "set PYTHONPATH=. && python -m 
       src.pipeline.stage_07_model_training"
     deps:
-    - path: artifacts/features
+    - path: artifacts/features/train_features.csv
       hash: md5
-      md5: 05426c287efb16dbaf48500006c744f4.dir
-      size: 37919181
-      nfiles: 2
+      md5: 57a08c0166ad27a4481428970264b44f
+      size: 67674002
     - path: config/config.yaml
       hash: md5
       md5: 66774d1a8ab13b8eb5007e73d23dd219
       size: 1150
     - path: src/components/model_training.py
       hash: md5
-      md5: 65e8e6e3aaf91c94eea3ec87a05caf8b
-      size: 13376
+      md5: d58cb8d71d9419d724c830340764b69c
+      size: 13365
     - path: src/pipeline/stage_07_model_training.py
       hash: md5
       md5: b688e8c554ab13f9b753e6cd18c1bd23
@@ -163,19 +165,22 @@ stages:
     cmd: cmd /c "set PYTHONPATH=. && python -m 
       src.pipeline.stage_08_model_evaluation"
     deps:
-    - path: artifacts/features
+    - path: artifacts/features/test_features.csv
       hash: md5
-      md5: 05426c287efb16dbaf48500006c744f4.dir
-      size: 37919181
-      nfiles: 2
+      md5: fd7ade890ec5c245145ea236202e98bd
+      size: 29062114
+    - path: artifacts/features/train_features.csv
+      hash: md5
+      md5: 57a08c0166ad27a4481428970264b44f
+      size: 67674002
     - path: config/config.yaml
       hash: md5
       md5: 66774d1a8ab13b8eb5007e73d23dd219
       size: 1150
     - path: src/components/model_evaluation.py
       hash: md5
-      md5: 2e2b21baec2495c755e5a64734852c4a
-      size: 21386
+      md5: 384bda593b9157598a50442e6fa6ad4a
+      size: 21969
     - path: src/pipeline/stage_08_model_evaluation.py
       hash: md5
       md5: c10f1ec34acd3df9a6380029467a3748
@@ -183,6 +188,36 @@ stages:
     outs:
     - path: artifacts/evaluation
       hash: md5
-      md5: 5e3547c19896c8806a1da75465e7540c.dir
-      size: 37433
+      md5: 03234912d6f3edee8ee9c6013ffae3a3.dir
+      size: 40003
       nfiles: 3
+  drift_detection:
+    cmd: cmd /c "set PYTHONPATH=. && venv\Scripts\python -m 
+      src.pipeline.stage_data_drift_detection"
+    deps:
+    - path: artifacts/features/reference_features.csv
+      hash: md5
+      md5: 7070f8f109a627b7adc1646661611d9e
+      size: 26518858
+    - path: artifacts/features/train_features.csv
+      hash: md5
+      md5: 57a08c0166ad27a4481428970264b44f
+      size: 67674002
+    - path: config/config.yaml
+      hash: md5
+      md5: 66774d1a8ab13b8eb5007e73d23dd219
+      size: 1150
+    - path: src/monitoring/drift_detection.py
+      hash: md5
+      md5: dcb59b47337a57debcdf89d49f7ae905
+      size: 6108
+    - path: src/pipeline/stage_data_drift_detection.py
+      hash: md5
+      md5: 338a54e5f20ff9b213a9d5b34d2e4562
+      size: 269
+    outs:
+    - path: artifacts/drift
+      hash: md5
+      md5: 45080567ad462e4583bf2fbef0042431.dir
+      size: 12689225
+      nfiles: 2

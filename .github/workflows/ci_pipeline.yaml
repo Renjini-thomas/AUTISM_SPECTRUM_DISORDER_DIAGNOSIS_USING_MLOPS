@@ -1,4 +1,60 @@
-name: ASD MLOps CI Pipeline
+# name: ASD MLOps CI Pipeline
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+
+#     steps:
+
+#       - name: Checkout Repo
+#         uses: actions/checkout@v4
+
+#       - name: Setup Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.10"
+
+#       - name: Install Dependencies
+#         run: |
+#           pip install -r requirements.txt
+
+#       - name: Load DagsHub Secrets
+#         run: |
+#           echo "DAGSHUB_USERNAME=${{ secrets.DAGSHUB_USERNAME }}" >> $GITHUB_ENV
+#           echo "DAGSHUB_TOKEN=${{ secrets.DAGSHUB_TOKEN }}" >> $GITHUB_ENV
+
+#       - name: Test Prediction Pipeline Import
+#         run: |
+#           python -c "from src.prediction.ASD_prediction import ASD_Prediction"
+
+      
+#       - name: Test Flask App Import
+#         run: |
+#           python -c "import app; assert app.app is not None"
+
+      
+#       - name: Verify Template Exists
+#         run: |
+#           test -f templates/index.html || (echo "templates/index.html missing!" && exit 1)
+
+#       - name: Build Docker Image
+#         run: |
+#           docker build -t asd-mlops .
+      
+#       - name: Login to DockerHub
+#         run: |
+#           echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+#       - name: Push Docker Image
+#         run: |
+#           docker tag asd-mlops ${{ secrets.DOCKER_USERNAME }}/asd-mlops:latest
+#           docker push ${{ secrets.DOCKER_USERNAME }}/asd-mlops:latest
+name: ASD MLOps CI/CD Pipeline
 
 on:
   push:
@@ -6,12 +62,17 @@ on:
       - main
 
 jobs:
-  build:
+
+  # ── JOB 1: TEST ───────────────────────────────────────────────────────────
+  # Runs on every push. Validates code before any expensive training begins.
+  # If this fails, train and deploy never run.
+  # ─────────────────────────────────────────────────────────────────────────
+  test:
     runs-on: ubuntu-latest
 
     steps:
 
-      - name: Checkout Repo
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -19,38 +80,177 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install Dependencies
-        run: |
-          pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - name: Load DagsHub Secrets
+      - name: Load DagsHub secrets
         run: |
           echo "DAGSHUB_USERNAME=${{ secrets.DAGSHUB_USERNAME }}" >> $GITHUB_ENV
-          echo "DAGSHUB_TOKEN=${{ secrets.DAGSHUB_TOKEN }}" >> $GITHUB_ENV
+          echo "DAGSHUB_TOKEN=${{ secrets.DAGSHUB_TOKEN }}"       >> $GITHUB_ENV
 
-      - name: Test Prediction Pipeline Import
-        run: |
-          python -c "from src.prediction.ASD_prediction import ASD_Prediction"
+      - name: Test prediction pipeline import
+        run: python -c "from src.prediction.ASD_prediction import ASD_Prediction"
 
-      # ✅ Changed: was "Test Gradio App Import"
-      - name: Test Flask App Import
-        run: |
-          python -c "import app; assert app.app is not None"
+      - name: Test Flask app import
+        run: python -c "import app; assert app.app is not None"
 
-      # ✅ New: ensures the HTML template is present before Docker build
-      - name: Verify Template Exists
-        run: |
-          test -f templates/index.html || (echo "templates/index.html missing!" && exit 1)
+      - name: Verify template exists
+        run: test -f templates/index.html || (echo "templates/index.html missing!" && exit 1)
 
-      - name: Build Docker Image
+      - name: Run unit tests
         run: |
-          docker build -t asd-mlops .
-      
+          pytest tests/ -v --tb=short
+        # If you don't have a tests/ directory yet, replace with:
+        # run: echo "No unit tests yet — skipping"
+
+  # ── JOB 2: TRAIN ─────────────────────────────────────────────────────────
+  # Runs DVC pipeline: feature_extraction → drift_detection → model_training
+  # → model_evaluation. Captures two outputs:
+  #   drift_detected   — whether Evidently found distribution shift
+  #   model_promoted   — whether the new model beat the staging model
+  # Both are used to gate the deploy job.
+  # ─────────────────────────────────────────────────────────────────────────
+  train:
+    runs-on: ubuntu-latest
+    needs: test                  # only runs if test passes
+
+    outputs:
+      drift_detected: ${{ steps.drift.outputs.DRIFT_DETECTED }}
+      model_promoted: ${{ steps.eval.outputs.MODEL_PROMOTED }}
+
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Load DagsHub secrets
+        run: |
+          echo "DAGSHUB_USERNAME=${{ secrets.DAGSHUB_USERNAME }}" >> $GITHUB_ENV
+          echo "DAGSHUB_TOKEN=${{ secrets.DAGSHUB_TOKEN }}"       >> $GITHUB_ENV
+
+      # ── DVC SETUP ──────────────────────────────────────────────────────
+      # Configure DVC remote credentials so dvc pull can fetch data
+      # from DagsHub. DagsHub uses the same credentials as MLflow.
+      - name: Configure DVC remote credentials
+        run: |
+          dvc remote modify origin --local auth basic
+          dvc remote modify origin --local user ${{ secrets.DAGSHUB_USERNAME }}
+          dvc remote modify origin --local password ${{ secrets.DAGSHUB_TOKEN }}
+
+      - name: Pull data and artifacts from DVC remote
+        run: dvc pull --no-run-cache
+        # Pulls:
+        #   data/preprocessed/train, data/preprocessed/test  (sMRI slices)
+        #   artifacts/features/reference_features.csv         (frozen baseline)
+        # train_features.csv is NOT pulled — it is produced by dvc repro
+
+      # ── DVC REPRO ──────────────────────────────────────────────────────
+      # Runs only the stages whose deps have changed since last run.
+      # Order enforced by dvc.yaml dependency graph:
+      #   feature_extraction → drift_detection → model_training → model_evaluation
+      #
+      # drift_detection.py writes DRIFT_DETECTED + DRIFT_SCORE to $GITHUB_OUTPUT.
+      # model_evaluation.py writes MODEL_PROMOTED to $GITHUB_OUTPUT.
+      # Both are captured by the steps below via id references.
+
+      - name: Run feature extraction
+        run: dvc repro feature_extraction
+
+      - name: Run drift detection
+        id: drift                # ← captured as job output above
+        run: dvc repro drift_detection
+
+      - name: Run model training
+        # Always runs if drift_detection passed — DVC gates this internally
+        # via artifacts/drift dependency in dvc.yaml.
+        run: dvc repro model_training
+
+      - name: Run model evaluation
+        id: eval                 # ← captured as job output above
+        run: dvc repro model_evaluation
+
+      # ── PUSH UPDATED ARTIFACTS ─────────────────────────────────────────
+      # If model_evaluation promoted the new model, reference_features.csv
+      # was updated. Push it back to DVC remote so the next run picks it up.
+      - name: Push updated artifacts to DVC remote
+        if: steps.eval.outputs.MODEL_PROMOTED == 'true'
+        run: dvc push
+
+      # Commit the updated dvc.lock so DVC tracks the new pipeline state.
+      - name: Commit dvc.lock
+        if: steps.eval.outputs.MODEL_PROMOTED == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dvc.lock
+          git diff --staged --quiet || git commit -m "ci: update dvc.lock after model promotion [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── SUMMARY ────────────────────────────────────────────────────────
+      - name: Print training summary
+        run: |
+          echo "Drift detected  : ${{ steps.drift.outputs.DRIFT_DETECTED }}"
+          echo "Model promoted  : ${{ steps.eval.outputs.MODEL_PROMOTED }}"
+
+  # ── JOB 3: DEPLOY ────────────────────────────────────────────────────────
+  # Only runs when train completes AND a new model was promoted to staging.
+  # Builds a fresh Docker image with the updated app code and pushes it
+  # to DockerHub. Add your deployment step (EC2, Render, etc.) at the end.
+  # ─────────────────────────────────────────────────────────────────────────
+  deploy:
+    runs-on: ubuntu-latest
+    needs: train
+    # ⭐ This is the deployment gate — only deploy when the model improved
+    if: needs.train.outputs.model_promoted == 'true'
+
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
       - name: Login to DockerHub
         run: |
-          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login \
+            -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      - name: Push Docker Image
+      - name: Build Docker image
+        run: docker build -t asd-mlops .
+
+      - name: Tag and push Docker image
         run: |
           docker tag asd-mlops ${{ secrets.DOCKER_USERNAME }}/asd-mlops:latest
           docker push ${{ secrets.DOCKER_USERNAME }}/asd-mlops:latest
+
+      # # ── ADD YOUR DEPLOYMENT TARGET HERE ───────────────────────────────
+      # # Option A — EC2 via SSH:
+      # # - name: Deploy to EC2
+      # #   uses: appleboy/ssh-action@v1
+      # #   with:
+      # #     host: ${{ secrets.EC2_HOST }}
+      # #     username: ubuntu
+      # #     key: ${{ secrets.EC2_SSH_KEY }}
+      # #     script: |
+      # #       docker pull ${{ secrets.DOCKER_USERNAME }}/asd-mlops:latest
+      # #       docker stop asd-mlops || true
+      # #       docker rm   asd-mlops || true
+      # #       docker run -d --name asd-mlops -p 80:5000 \
+      # #         -e DAGSHUB_USERNAME=${{ secrets.DAGSHUB_USERNAME }} \
+      # #         -e DAGSHUB_TOKEN=${{ secrets.DAGSHUB_TOKEN }} \
+      # #         ${{ secrets.DOCKER_USERNAME }}/asd-mlops:latest
+
+      # # Option B — Render deploy hook:
+      # # - name: Trigger Render deploy
+      # #   run: curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+      # - name: Deployment complete
+      #   run: echo "New model deployed successfully"

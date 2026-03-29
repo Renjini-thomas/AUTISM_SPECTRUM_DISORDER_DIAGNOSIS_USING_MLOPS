@@ -19,3 +19,4 @@ torch
 torchvision
 flask
 python-dotenv
+evidently==0.4.19

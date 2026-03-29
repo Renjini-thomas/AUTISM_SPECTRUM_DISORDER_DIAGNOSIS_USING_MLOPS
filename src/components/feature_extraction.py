@@ -345,6 +345,184 @@
 #             print("Feature Extraction Completed ✅")
 
 # DENSENET121 FEATURE EXTRACTION
+# import torch
+# import torchvision.models as models
+# import torchvision.transforms as transforms
+
+# import numpy as np
+# import pandas as pd
+# import mlflow
+# import os
+# import shutil
+
+# from pathlib import Path
+# from tqdm import tqdm
+# from dotenv import load_dotenv
+# import cv2
+
+
+# class FeatureExtraction:
+
+#     def __init__(self):
+
+#         self.train_dir = Path("data/preprocessed/train")
+#         self.test_dir = Path("data/preprocessed/test")
+
+#         self.output_dir = Path("artifacts/features")
+#         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+#         # DEVICE
+#         self.device = torch.device(
+#             "cuda" if torch.cuda.is_available() else "cpu"
+#         )
+
+#         # LOAD DENSENET121
+#         model = models.densenet121(
+#             weights=models.DenseNet121_Weights.IMAGENET1K_V1
+#         )
+
+#         # USE ONLY FEATURE BACKBONE
+#         self.backbone = model.features
+
+#         self.backbone.to(self.device)
+#         self.backbone.eval()
+
+#         # TRANSFORM
+#         self.transform = transforms.Compose([
+#             transforms.ToPILImage(),
+#             transforms.Resize((224, 224)),
+#             transforms.ToTensor(),
+#             transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+#             transforms.Normalize(
+#                 mean=[0.485, 0.456, 0.406],
+#                 std=[0.229, 0.224, 0.225]
+#             )
+#         ])
+
+#     # ================= FEATURE EXTRACTION =================
+#     def extract_feature(self, img):
+
+#         img = self.transform(img).unsqueeze(0).to(self.device)
+
+#         with torch.no_grad():
+
+#             feat_map = self.backbone(img)
+
+#             feat_map = torch.relu(feat_map)
+
+#             avg_pool = torch.mean(feat_map, dim=(2, 3))
+#             max_pool = torch.amax(feat_map, dim=(2, 3))
+#             std_pool = torch.std(feat_map, dim=(2, 3))
+
+#             feat = torch.cat([avg_pool, max_pool, std_pool], dim=1)
+
+#         return feat.squeeze().cpu().numpy()
+
+#     # ================= PROCESS DATASET =================
+#     def process_dataset(self, base_dir):
+
+#         rows = []
+
+#         for class_dir in base_dir.iterdir():
+
+#             if not class_dir.is_dir():
+#                 continue
+
+#             label = class_dir.name
+#             files = list(class_dir.glob("*.png"))
+
+#             print(f"{label} → {len(files)} images found")
+
+#             subject_dict = {}
+
+#             for file in tqdm(files, desc=f"Processing {label}"):
+
+#                 subject_id = file.stem.split("_slice")[0]
+
+#                 img = cv2.imread(str(file), 0)
+
+#                 if img is None:
+#                     continue
+
+
+#                 feat = self.extract_feature(img)
+
+#                 subject_dict.setdefault(subject_id, []).append(feat)
+
+#             # SUBJECT LEVEL AGGREGATION
+#             for subject_id, feat_list in subject_dict.items():
+
+#                 feat_stack = np.vstack(feat_list)
+
+#                 mean_feat = np.mean(feat_stack, axis=0)
+#                 max_feat = np.max(feat_stack, axis=0)
+#                 std_feat = np.std(feat_stack, axis=0)
+
+#                 # subject_feat = np.concatenate(
+#                 #     [mean_feat, max_feat, std_feat]
+#                 # )
+#                 # subject_feat = np.concatenate([mean_feat, std_feat])
+#                 subject_feat = mean_feat
+#                 rows.append(list(subject_feat) + [label])
+
+#         if len(rows) == 0:
+#             raise ValueError("No features extracted!")
+
+#         feature_dim = len(rows[0]) - 1
+
+#         columns = [
+#             f"deep_feat_{i}" for i in range(feature_dim)
+#         ] + ["label"]
+
+#         df = pd.DataFrame(rows, columns=columns)
+
+#         return df, feature_dim
+
+#     # ================= RUN =================
+#     def run(self):
+
+#         load_dotenv()
+
+#         os.environ["MLFLOW_TRACKING_USERNAME"] = os.getenv("DAGSHUB_USERNAME")
+#         os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("DAGSHUB_TOKEN")
+
+#         mlflow.set_tracking_uri(
+#             "https://dagshub.com/renjini2539thomas/AUTISM_SPECTRUM_DISORDER_DIAGNOSIS_USING_MLOPS.mlflow"
+#         )
+
+#         mlflow.set_experiment("ASD_DEEP_FEATURES")
+
+#         with mlflow.start_run(run_name="densenet121_feature_extraction"):
+
+#             print("Extracting TRAIN deep features...")
+#             train_df, feature_dim = self.process_dataset(self.train_dir)
+
+#             print("Extracting TEST deep features...")
+#             test_df, _ = self.process_dataset(self.test_dir)
+
+#             train_path = self.output_dir / "train_features.csv"
+#             test_path = self.output_dir / "test_features.csv"
+#             reference_path = self.output_dir / "reference_features.csv"
+
+#             train_df.to_csv(train_path, index=False)
+#             test_df.to_csv(test_path, index=False)
+#             if not reference_path.exists():
+#                 shutil.copy(train_path, reference_path)
+#                 print("Reference distribution saved ✅")
+#                 mlflow.log_artifact(str(reference_path))
+#             else:
+#                 print("Reference already exists — skipping overwrite ✅")
+            
+
+
+#             mlflow.log_param("feature_type", "DenseNet121")
+#             mlflow.log_param("feature_dim", feature_dim)
+#             mlflow.log_param("device", str(self.device))
+
+#             mlflow.log_artifact(str(train_path))
+#             mlflow.log_artifact(str(test_path))
+
+#             print("DenseNet Feature Extraction Completed ✅")   
 import torch
 import torchvision.models as models
 import torchvision.transforms as transforms
@@ -353,6 +531,7 @@ import numpy as np
 import pandas as pd
 import mlflow
 import os
+import shutil
 
 from pathlib import Path
 from tqdm import tqdm
@@ -365,28 +544,29 @@ class FeatureExtraction:
     def __init__(self):
 
         self.train_dir = Path("data/preprocessed/train")
-        self.test_dir = Path("data/preprocessed/test")
+        self.test_dir  = Path("data/preprocessed/test")
 
         self.output_dir = Path("artifacts/features")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # DEVICE
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
 
-        # LOAD DENSENET121
+        # ── LOAD DENSENET121 ───────────────────────────────────
         model = models.densenet121(
             weights=models.DenseNet121_Weights.IMAGENET1K_V1
         )
 
-        # USE ONLY FEATURE BACKBONE
-        self.backbone = model.features
+        # ⭐ Extract from TWO layers instead of one
+        # denseblock3 = mid-level structural features (edges, textures)
+        # features    = final high-level semantic features
+        self.mid_layer  = model.features[:10]   # up to denseblock3
+        self.full_layer = model.features         # full backbone
 
-        self.backbone.to(self.device)
-        self.backbone.eval()
+        self.mid_layer.to(self.device).eval()
+        self.full_layer.to(self.device).eval()
 
-        # TRANSFORM
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize((224, 224)),
@@ -398,26 +578,35 @@ class FeatureExtraction:
             )
         ])
 
-    # ================= FEATURE EXTRACTION =================
+    # ── FEATURE EXTRACTION ────────────────────────────────────
     def extract_feature(self, img):
 
-        img = self.transform(img).unsqueeze(0).to(self.device)
+        img_tensor = self.transform(img).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
 
-            feat_map = self.backbone(img)
+            # ⭐ Mid-level features (denseblock3)
+            mid_map  = self.mid_layer(img_tensor)
+            mid_map  = torch.relu(mid_map)
+            mid_avg  = torch.mean(mid_map, dim=(2, 3))
+            mid_max  = torch.amax(mid_map, dim=(2, 3))
 
-            feat_map = torch.relu(feat_map)
+            # ⭐ Final-level features (full backbone)
+            full_map = self.full_layer(img_tensor)
+            full_map = torch.relu(full_map)
+            full_avg = torch.mean(full_map, dim=(2, 3))
+            full_max = torch.amax(full_map, dim=(2, 3))
+            full_std = torch.std(full_map, dim=(2, 3))
 
-            avg_pool = torch.mean(feat_map, dim=(2, 3))
-            max_pool = torch.amax(feat_map, dim=(2, 3))
-            std_pool = torch.std(feat_map, dim=(2, 3))
-
-            feat = torch.cat([avg_pool, max_pool, std_pool], dim=1)
+            # ⭐ Concatenate multi-scale features
+            feat = torch.cat([
+                mid_avg, mid_max,               # mid-level: 2 × 512
+                full_avg, full_max, full_std     # high-level: 3 × 1024
+            ], dim=1)
 
         return feat.squeeze().cpu().numpy()
 
-    # ================= PROCESS DATASET =================
+    # ── PROCESS DATASET ───────────────────────────────────────
     def process_dataset(self, base_dir):
 
         rows = []
@@ -428,7 +617,7 @@ class FeatureExtraction:
                 continue
 
             label = class_dir.name
-            files = list(class_dir.glob("*.png"))
+            files = sorted(list(class_dir.glob("*.png")))  # ⭐ sorted for consistent slice order
 
             print(f"{label} → {len(files)} images found")
 
@@ -443,41 +632,50 @@ class FeatureExtraction:
                 if img is None:
                     continue
 
-
                 feat = self.extract_feature(img)
-
                 subject_dict.setdefault(subject_id, []).append(feat)
 
-            # SUBJECT LEVEL AGGREGATION
+            # ── SUBJECT LEVEL AGGREGATION ──────────────────────
             for subject_id, feat_list in subject_dict.items():
 
-                feat_stack = np.vstack(feat_list)
+                n_slices   = len(feat_list)
+                feat_stack = np.vstack(feat_list)   # shape: (n_slices, feat_dim)
 
-                mean_feat = np.mean(feat_stack, axis=0)
-                max_feat = np.max(feat_stack, axis=0)
-                std_feat = np.std(feat_stack, axis=0)
+                # ⭐ Center-weighted mean — center brain slices
+                # carry more ASD signal than edge slices
+                center     = n_slices / 2
+                positions  = np.arange(n_slices)
+                weights    = np.exp(
+                    -0.5 * ((positions - center) / (n_slices * 0.3)) ** 2
+                )
+                weights    = weights / weights.sum()
 
-                # subject_feat = np.concatenate(
-                #     [mean_feat, max_feat, std_feat]
-                # )
-                # subject_feat = np.concatenate([mean_feat, std_feat])
-                subject_feat = mean_feat
+                weighted_mean = np.average(feat_stack, axis=0, weights=weights)
+                global_mean   = np.mean(feat_stack, axis=0)
+                global_std    = np.std(feat_stack, axis=0)   # ⭐ slice variability = informative
+
+                # ⭐ Combine all three aggregations
+                subject_feat = weighted_mean  # center-weighted mean
+                         # variability across slices
+            
+
+                # ⭐ L2 normalize — removes scanner intensity bias
+                norm = np.linalg.norm(subject_feat)
+                if norm > 0:
+                    subject_feat = subject_feat / norm
+
                 rows.append(list(subject_feat) + [label])
 
         if len(rows) == 0:
             raise ValueError("No features extracted!")
 
         feature_dim = len(rows[0]) - 1
-
-        columns = [
-            f"deep_feat_{i}" for i in range(feature_dim)
-        ] + ["label"]
-
-        df = pd.DataFrame(rows, columns=columns)
+        columns     = [f"deep_feat_{i}" for i in range(feature_dim)] + ["label"]
+        df          = pd.DataFrame(rows, columns=columns)
 
         return df, feature_dim
 
-    # ================= RUN =================
+    # ── RUN ───────────────────────────────────────────────────
     def run(self):
 
         load_dotenv()
@@ -488,7 +686,6 @@ class FeatureExtraction:
         mlflow.set_tracking_uri(
             "https://dagshub.com/renjini2539thomas/AUTISM_SPECTRUM_DISORDER_DIAGNOSIS_USING_MLOPS.mlflow"
         )
-
         mlflow.set_experiment("ASD_DEEP_FEATURES")
 
         with mlflow.start_run(run_name="densenet121_feature_extraction"):
@@ -499,19 +696,29 @@ class FeatureExtraction:
             print("Extracting TEST deep features...")
             test_df, _ = self.process_dataset(self.test_dir)
 
-            train_path = self.output_dir / "train_features.csv"
-            test_path = self.output_dir / "test_features.csv"
+            train_path     = self.output_dir / "train_features.csv"
+            test_path      = self.output_dir / "test_features.csv"
+            reference_path = self.output_dir / "reference_features.csv"
 
             train_df.to_csv(train_path, index=False)
             test_df.to_csv(test_path, index=False)
 
-            mlflow.log_param("feature_type", "DenseNet121")
-            mlflow.log_param("feature_dim", feature_dim)
-            mlflow.log_param("device", str(self.device))
+            if not reference_path.exists():
+                shutil.copy(train_path, reference_path)
+                print("Reference distribution saved ✅")
+                mlflow.log_artifact(str(reference_path))
+            else:
+                print("Reference already exists — skipping overwrite ✅")
+
+            mlflow.log_param("feature_type",        "DenseNet121_multiscale")
+            mlflow.log_param("feature_dim",         feature_dim)
+            mlflow.log_param("device",              str(self.device))
+            mlflow.log_param("aggregation",         "weighted_mean+global_mean+std")
+            mlflow.log_param("normalization",       "L2")
+            mlflow.log_param("layers_used",         "denseblock3+final")
 
             mlflow.log_artifact(str(train_path))
             mlflow.log_artifact(str(test_path))
 
-            print("DenseNet Feature Extraction Completed ✅")   
-
-
+            print(f"Feature dim : {feature_dim}")
+            print("DenseNet Feature Extraction Completed ✅")

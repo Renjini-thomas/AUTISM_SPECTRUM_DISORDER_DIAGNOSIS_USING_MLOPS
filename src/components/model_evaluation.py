@@ -453,6 +453,8 @@
 #             else:
 
 #                 print("New model WORSE → NOT registering ❌")
+import shutil
+
 import numpy as np
 import pandas as pd
 import mlflow
@@ -495,18 +497,15 @@ class ModelEvaluation:
         mlflow.set_experiment("ASD_MLOPS_PIPELINE")
 
         self.feature_dir = Path("artifacts/features")
-        self.eval_dir = Path("artifacts/evaluation")
+        self.eval_dir    = Path("artifacts/evaluation")
         self.eval_dir.mkdir(parents=True, exist_ok=True)
 
-    # ⭐ GET BEST CANDIDATE RUN FROM TRAINING
-
+    # ── GET BEST CANDIDATE RUN FROM TRAINING ───────────────────
     def get_best_candidate_run(self):
 
         client = MlflowClient()
+        exp    = client.get_experiment_by_name("ASD_MLOPS_PIPELINE")
 
-        exp = client.get_experiment_by_name("ASD_MLOPS_PIPELINE")
-
-        # ⭐ compute current data hash
         import hashlib
         path = self.feature_dir / "train_features.csv"
         with open(path, "rb") as f:
@@ -522,90 +521,86 @@ class ModelEvaluation:
             raise Exception("No runs found for current feature version")
 
         best_run = runs[0]
-
         print("⭐ Best Candidate Run:", best_run.info.run_id)
-
         return best_run.info.run_id
 
-    # ⭐ LOAD TEST DATA + LOAD MODEL FROM MLFLOW RUN
-
+    # ── LOAD TEST DATA + MODEL ─────────────────────────────────
     def load_data(self):
 
-        # test_df = pd.read_csv(self.feature_dir / "test_features.csv")
-
-        # X_test = test_df.drop("label", axis=1)
-        # y_test = test_df["label"].values
-
-        # run_id = self.get_best_candidate_run()
-
-        # model_uri = f"runs:/{run_id}/model"
-
-        # model = mlflow.pyfunc.load_model(model_uri)
-
-        # return X_test, y_test, model, run_id
         import joblib
         import tempfile
+
         test_df = pd.read_csv(self.feature_dir / "test_features.csv")
-        X_test = test_df.drop("label", axis=1)
-        y_test = test_df["label"].values
+        X_test  = test_df.drop("label", axis=1)
+        y_test  = test_df["label"].values
 
         run_id = self.get_best_candidate_run()
         client = MlflowClient()
+
         with tempfile.TemporaryDirectory() as tmp_dir:
-            load_dir = client.download_artifacts(run_id, "model", dst_path=tmp_dir)
+            load_dir   = client.download_artifacts(run_id, "model", dst_path=tmp_dir)
             model_path = os.path.join(load_dir, "model.joblib")
-            model = joblib.load(model_path)
+            model      = joblib.load(model_path)
+
         return X_test, y_test, model, run_id
 
-    # ⭐ EVALUATION
-
+    # ── EVALUATION ─────────────────────────────────────────────
     def evaluate(self):
 
         X_test, y_test, model, run_id = self.load_data()
+        client = MlflowClient()
 
         with mlflow.start_run(run_name="evaluation_stage"):
 
             mlflow.log_param("candidate_run_id", run_id)
 
-            # ===== PREDICTIONS =====
-
+            # ── PREDICTIONS ────────────────────────────────────
             y_pred = model.predict(X_test)
 
-            recall = recall_score(y_test, y_pred, pos_label="autism")
-            f1 = f1_score(y_test, y_pred, pos_label="autism")
-            acc = accuracy_score(y_test, y_pred)
-            bal_acc = balanced_accuracy_score(y_test, y_pred)
+            recall    = recall_score(y_test, y_pred, pos_label="autism")
+            f1        = f1_score(y_test, y_pred, pos_label="autism")
+            acc       = accuracy_score(y_test, y_pred)
+            bal_acc   = balanced_accuracy_score(y_test, y_pred)
             precision = precision_score(y_test, y_pred, pos_label="autism")
 
-            y_prob = model.predict_proba(X_test)[
-                :, list(model.classes_).index("autism")
-            ]
+            # ⭐ model.classes_ is proxied by sklearn Pipeline to the final
+            # estimator. Using named_steps is more explicit and version-safe.
+            autism_idx = list(model.named_steps["model"].classes_).index("autism")
+            y_prob     = model.predict_proba(X_test)[:, autism_idx]
 
             auc = roc_auc_score(
                 (y_test == "autism").astype(int),
                 y_prob
             )
-            mlflow.log_param("model_name", model.named_steps["model"].__class__.__name__)
+
+            # ── LOG PARAMS ─────────────────────────────────────
+            mlflow.log_param("model_name",   model.named_steps["model"].__class__.__name__)
             mlflow.log_param("model_params", model.get_params())
-            mlflow.log_param("pca_n_components", model.named_steps["pca"].n_components)
-            mlflow.log_param("scaler_used", "StandardScaler")
-            # ===== LOG METRICS =====
 
-            mlflow.log_metric("eval_recall", recall)
-            mlflow.log_metric("eval_f1", f1)
-            mlflow.log_metric("eval_accuracy", acc)
-            mlflow.log_metric("eval_auc", auc)
-            mlflow.log_metric("eval_balanced_accuracy", bal_acc)
-            mlflow.log_metric("eval_precision", precision)
+            pca = model.named_steps.get("pca", None)
+            if pca:
+                mlflow.log_param("pca_n_components", pca.n_components)
 
-            # ===== CONFUSION MATRIX =====
+            scaler = model.named_steps.get("scaler", None)
+            if scaler:
+                mlflow.log_param("scaler_used", scaler.__class__.__name__)
 
+            X_transformed = model[:-1].transform(X_test)
+            mlflow.log_param("input_feature_dim_after_pca", X_transformed.shape[1])
+
+            # ── LOG METRICS ────────────────────────────────────
+            mlflow.log_metric("eval_recall",             recall)
+            mlflow.log_metric("eval_f1",                 f1)
+            mlflow.log_metric("eval_accuracy",           acc)
+            mlflow.log_metric("eval_auc",                auc)
+            mlflow.log_metric("eval_balanced_accuracy",  bal_acc)
+            mlflow.log_metric("eval_precision",          precision)
+
+            # ── CONFUSION MATRIX ───────────────────────────────
             class_order = ["autism", "control"]
-
             cm = confusion_matrix(y_test, y_pred, labels=class_order)
 
             plt.figure(figsize=(6, 5))
-
             sns.heatmap(
                 cm,
                 annot=True,
@@ -614,76 +609,69 @@ class ModelEvaluation:
                 xticklabels=class_order,
                 yticklabels=class_order
             )
-
             plt.xlabel("Predicted")
             plt.ylabel("True")
             plt.title("Confusion Matrix")
 
             cm_path = self.eval_dir / "confusion_matrix.png"
-
             plt.tight_layout()
             plt.savefig(cm_path)
             plt.close()
-
             mlflow.log_artifact(str(cm_path))
 
-            # ===== ROC =====
-
+            # ── ROC CURVE ──────────────────────────────────────
             plt.figure()
-
             RocCurveDisplay.from_predictions(
                 (y_test == "autism").astype(int),
                 y_prob
             )
-
             roc_path = self.eval_dir / "roc_curve.png"
-
             plt.tight_layout()
             plt.savefig(roc_path)
             plt.close()
-
             mlflow.log_artifact(str(roc_path))
 
-            # ===== CLASSIFICATION REPORT =====
-
-            report = classification_report(y_test, y_pred)
-
+            # ── CLASSIFICATION REPORT ──────────────────────────
+            report      = classification_report(y_test, y_pred)
             report_path = self.eval_dir / "classification_report.txt"
-
             with open(report_path, "w") as f:
                 f.write(report)
-
             mlflow.log_artifact(str(report_path))
 
             print("✅ Evaluation Metrics Logged")
 
-            # ⭐ GOVERNANCE
-
-            client = MlflowClient()
-
-            staging_bal_acc = 0
+            # ── GOVERNANCE: GET STAGING BASELINE ───────────────
+            staging_bal_acc = 0.0
 
             try:
-
                 alias_info = client.get_model_version_by_alias(
                     name="ASD_BEST_MODEL",
                     alias="staging"
                 )
 
-                staging_run = client.get_run(alias_info.run_id)
+                # ⭐ FIX — read eval_balanced_accuracy from the model version
+                # TAG, not from the run metrics.
+                #
+                # WHY: The registered model version stores the TRAINING run_id
+                # (the run where the model artifact was saved). That run only
+                # has cv_* metrics, not eval_* metrics. eval_balanced_accuracy
+                # is logged in the EVALUATION run, which is a different run.
+                # Calling client.get_run(alias_info.run_id).data.metrics
+                # ["eval_balanced_accuracy"] would raise KeyError on every
+                # run after the first.
+                #
+                # The tag travels with the model version regardless of which
+                # run registered it, so it is always accessible here.
+                staging_bal_acc = float(
+                    alias_info.tags.get("eval_balanced_accuracy", 0)
+                )
 
-                staging_bal_acc = staging_run.data.metrics[
-                    "eval_balanced_accuracy"
-                ]
-
-                print("Previous Staging Balanced Accuracy:", staging_bal_acc)
+                print(f"Previous Staging Balanced Accuracy: {staging_bal_acc:.4f}")
 
             except Exception:
+                print("No staging model found — first promotion!")
 
-                print("No staging model found")
-
-            # ⭐ PROMOTION
-
+            # ── PROMOTION ──────────────────────────────────────
             if bal_acc > staging_bal_acc:
 
                 print("⭐ NEW MODEL BETTER → Registering")
@@ -693,14 +681,40 @@ class ModelEvaluation:
                     "ASD_BEST_MODEL"
                 )
 
+                # ⭐ FIX — store eval_balanced_accuracy as a tag on the
+                # model version so the next evaluation run can compare
+                # against it without needing to fetch the evaluation run.
+                client.set_model_version_tag(
+                    name="ASD_BEST_MODEL",
+                    version=result.version,
+                    key="eval_balanced_accuracy",
+                    value=str(round(bal_acc, 6))
+                )
+
                 client.set_registered_model_alias(
                     name="ASD_BEST_MODEL",
                     alias="staging",
                     version=result.version
                 )
 
-                print("✅ Promoted to STAGING")
+                print(f"✅ Promoted to STAGING (eval_bal_acc={bal_acc:.4f})")
+
+                # Update reference distribution to new data
+                reference_path = self.feature_dir / "reference_features.csv"
+                current_path   = self.feature_dir / "train_features.csv"
+                shutil.copy(current_path, reference_path)
+
+                mlflow.log_param("reference_updated", True)
+                mlflow.log_artifact(str(reference_path))
+                print("✅ Reference distribution updated to new data")
 
             else:
 
-                print("❌ New Model WORSE → Not Promoted")
+                print(f"❌ New Model WORSE ({bal_acc:.4f} ≤ {staging_bal_acc:.4f}) → Not Promoted")
+                print("📌 Reference distribution unchanged")
+                mlflow.log_param("reference_updated", False)
+            github_output = os.environ.get("GITHUB_OUTPUT")
+            if github_output:
+                promoted = bal_acc > staging_bal_acc
+                with open(github_output, "a") as f:
+                    f.write(f"MODEL_PROMOTED={'true' if promoted else 'false'}\n")

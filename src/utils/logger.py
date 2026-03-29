@@ -2,15 +2,20 @@ import logging
 import os
 from datetime import datetime
 
+def setup_logger():
 
-LOG_FILE = f"{datetime.now().strftime('%m_%d_%Y_%H_%M_%S')}.log"
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
 
-logs_path = os.path.join("logs", LOG_FILE)
+    log_file = os.path.join(
+        log_dir,
+        f"run_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}.log"
+    )
 
-os.makedirs("logs", exist_ok=True)
+    logging.basicConfig(
+        filename=log_file,
+        format="[ %(asctime)s ] %(levelname)s %(name)s: %(message)s",
+        level=logging.INFO,
+    )
 
-logging.basicConfig(
-    filename=logs_path,
-    format="[ %(asctime)s ] %(levelname)s %(message)s",
-    level=logging.INFO,
-)
+    return log_file

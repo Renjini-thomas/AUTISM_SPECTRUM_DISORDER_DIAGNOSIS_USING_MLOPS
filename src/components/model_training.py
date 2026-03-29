@@ -206,8 +206,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 import tempfile
-import optuna
-from optuna.integration import OptunaSearchCV
+# import optuna
+# from optuna.integration import OptunaSearchCV
 
 
 class ModelTrainer:
@@ -265,7 +265,7 @@ class ModelTrainer:
                 ]),
                 {   
                     "scaler": [StandardScaler(), RobustScaler(), MinMaxScaler(), PowerTransformer()],
-                    "pca__n_components": [0.85, 0.90, 0.95],
+                    "pca__n_components": [100,200,300],
                     "model__C": [0.01, 0.1, 1, 10],
                     "model__penalty": ["l2"],
                     "model__solver": ["liblinear", "saga"]
@@ -282,7 +282,7 @@ class ModelTrainer:
                     ))
                 ]),
                 {
-                    "pca__n_components": [0.85, 0.90, 0.95],
+                    "pca__n_components": [100, 200, 300],
                     "model__n_estimators": [200, 400],
                     "model__max_depth": [5, 10, 15]
                 }
@@ -299,7 +299,7 @@ class ModelTrainer:
                 ]),
                 {
                     "scaler": [StandardScaler(), RobustScaler(), MinMaxScaler(), PowerTransformer()],
-                    "pca__n_components": [0.85, 0.90, 0.95],
+                    "pca__n_components": [100, 200, 300],
                     "model__kernel": ["rbf"],
                     "model__C": [0.5, 1, 5],
                     "model__gamma": ["scale"]
@@ -314,7 +314,7 @@ class ModelTrainer:
                 ]),
                 {
                     "scaler": [StandardScaler(), RobustScaler(), MinMaxScaler(), PowerTransformer()],
-                    "pca__n_components": [0.85, 0.90, 0.95],
+                    "pca__n_components": [100, 200, 300],
                     "model__n_neighbors": [5, 7, 9]
                 }
             )
@@ -344,9 +344,14 @@ class ModelTrainer:
             "accuracy": "accuracy"
         }
 
+        # ⭐ GLOBAL BEST TRACKING
+        best_global_score = -1
+        best_run_id = None
+        best_model_name = None
+
         for name, (pipe, params) in self.get_models().items():
 
-            with mlflow.start_run(run_name=name):
+            with mlflow.start_run(run_name=name) as run:
 
                 print(f"Training {name}")
 
@@ -356,7 +361,7 @@ class ModelTrainer:
                     cv=cv,
                     scoring=scoring,
                     refit="bal_acc",
-                    n_jobs=-1
+                    n_jobs=2
                 )
 
                 grid.fit(X_train, y_train)
@@ -369,26 +374,45 @@ class ModelTrainer:
                 cv_auc = grid.cv_results_["mean_test_auc"][idx]
                 cv_acc = grid.cv_results_["mean_test_accuracy"][idx]
 
+                # ⭐ LOG METADATA
                 mlflow.log_param("candidate_model", name)
                 mlflow.log_param("data_version", data_hash)
                 mlflow.log_params(grid.best_params_)
 
+                # ⭐ LOG METRICS
                 mlflow.log_metric("cv_recall", cv_recall)
                 mlflow.log_metric("cv_f1", cv_f1)
                 mlflow.log_metric("cv_balanced_accuracy", cv_bal_acc)
                 mlflow.log_metric("cv_auc", cv_auc)
                 mlflow.log_metric("cv_accuracy", cv_acc)
 
-                # # ⭐ MOST IMPORTANT → log candidate model
-                # mlflow.sklearn.log_model(
-                #     sk_model=grid.best_estimator_,
-                #     name="model"
-                # )
+                # ⭐ LOG MODEL PIPELINE (VERY IMPORTANT)
+                best_pipe = grid.best_estimator_
+
                 with tempfile.TemporaryDirectory() as tmp_dir:
 
                     model_path = os.path.join(tmp_dir, "model.joblib")
-                    joblib.dump(grid.best_estimator_, model_path)
-
+                    joblib.dump(best_pipe, model_path)
                     mlflow.log_artifact(model_path, artifact_path="model")
 
-                print(f"{name} CV Bal Acc: {cv_bal_acc:.3f} Recall: {cv_recall:.3f} F1: {cv_f1:.3f} AUC: {cv_auc:.3f} Accuracy: {cv_acc:.3f}")
+                # ⭐ TRACK GLOBAL BEST RUN
+                if cv_bal_acc > best_global_score:
+                    best_global_score = cv_bal_acc
+                    best_run_id = run.info.run_id
+                    best_model_name = name
+
+                print(f"{name} CV Bal Acc: {cv_bal_acc:.3f}")
+
+        # ⭐ FINAL BEST MODEL SUMMARY
+        print("\n🏆 FINAL BEST MODEL")
+        print(f"Model: {best_model_name}")
+        print(f"Balanced Accuracy: {best_global_score:.4f}")
+        print(f"Run ID: {best_run_id}")
+
+        # ⭐ LOG BEST RUN INFO (for evaluation stage)
+        with mlflow.start_run(run_name="best_model_summary"):
+            mlflow.log_param("best_run_id", best_run_id)
+            mlflow.log_param("best_model", best_model_name)
+            mlflow.log_metric("best_balanced_accuracy", best_global_score)
+
+        print("✅ Training complete — best model stored in MLflow")
