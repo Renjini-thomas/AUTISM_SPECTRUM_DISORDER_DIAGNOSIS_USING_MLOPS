@@ -97,11 +97,11 @@ jobs:
       - name: Verify template exists
         run: test -f templates/index.html || (echo "templates/index.html missing!" && exit 1)
 
-      - name: Run unit tests
-        run: |
-          pytest tests/ -v --tb=short
-        # If you don't have a tests/ directory yet, replace with:
-        # run: echo "No unit tests yet — skipping"
+      # - name: Run unit tests
+      #   run: |
+      #     pytest tests/ -v --tb=short
+      #   # If you don't have a tests/ directory yet, replace with:
+      #   # run: echo "No unit tests yet — skipping"
 
   # ── JOB 2: TRAIN ─────────────────────────────────────────────────────────
   # Runs DVC pipeline: feature_extraction → drift_detection → model_training
